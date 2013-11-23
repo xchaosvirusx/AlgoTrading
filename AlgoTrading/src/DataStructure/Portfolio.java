@@ -18,8 +18,8 @@ public class Portfolio {
 		positions = new HashMap<String,Position>();
 	}
 	
-	public void addPosition(String symbol, String name, long quantity, double bookValue){
-		positions.put(symbol, new Position(symbol, name, quantity, bookValue));
+	public void addPosition(String symbol, String name, long quantity, double bookValue, double marketValue){
+		positions.put(symbol, new Position(symbol, name, quantity, bookValue, marketValue));
 	}
 	
 	public Position getPosition(String symbol){
@@ -30,13 +30,19 @@ public class Portfolio {
 		return positions.values();
 	}
 	
-	public double getTotalPositionValues(){
+	public double getTotalPositionsMarketValue(){
 		double totalValue = 0;
 		for(String symbol : positions.keySet()){
 			Position pos = positions.get(symbol);
-			totalValue += pos.bookValue;
+			totalValue += pos.marketValue;
 		}
 		return totalValue;
+	}
+	
+	public double getTotalPortfolioMarketValue(){
+		double mktValue = balance;
+		mktValue += getTotalPositionsMarketValue();
+		return mktValue;
 	}
 	
 	public String toString(){

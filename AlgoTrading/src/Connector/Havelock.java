@@ -143,8 +143,9 @@ public class Havelock implements Connector {
 			String name = pos.getString("name");
 			long quantity = pos.getLong("quantity");
 			double bookValue = pos.getDouble("bookvalue");
+			double marketValue = pos.getDouble("marketvalue");
 			
-			portfolio.addPosition(symbol, name, quantity, bookValue);
+			portfolio.addPosition(symbol, name, quantity, bookValue, marketValue);
 		}
 		
 		//get balance information
@@ -223,6 +224,50 @@ public class Havelock implements Connector {
 	}
 	
 	/*
+	 * gets the symbol (ticker) information
+	 */
+	public SymbolInfo getSymbolInfo(String symbol){
+		symbol = symbol.trim();
+		
+		HashMap<String,String> var = new HashMap<String,String>();
+		var.put("symbol", symbol);
+		String result = apiCall(CMD.TICKERFULL,var);
+		JSONObject symbolInfo = new JSONObject(result);
+		
+		SymbolInfo info = new SymbolInfo();
+		info.symbol=symbol;
+		
+		//parse the symbol info object
+		JSONObject jsonSymbolInfo = symbolInfo.getJSONObject(symbol);
+		info.lastPrice = jsonSymbolInfo.getDouble("last");
+		
+		info.unitsOutstanding = jsonSymbolInfo.getLong("units");
+		
+		//process 1 day stats
+		JSONObject OneDayStats = jsonSymbolInfo.getJSONObject("1d");
+		info.OneDayStats.max = OneDayStats.getDouble("max");
+		info.OneDayStats.min = OneDayStats.getDouble("min");
+		info.OneDayStats.vwap = OneDayStats.getDouble("vwap");
+		info.OneDayStats.vol = OneDayStats.getLong("vol");
+		
+		//process 7 day stats
+		JSONObject SevenDayStats = jsonSymbolInfo.getJSONObject("7d");
+		info.SevenDayStats.max = SevenDayStats.getDouble("max");
+		info.SevenDayStats.min = SevenDayStats.getDouble("min");
+		info.SevenDayStats.vwap = SevenDayStats.getDouble("vwap");
+		info.SevenDayStats.vol = SevenDayStats.getLong("vol");
+		
+		//process 30 day stats
+		JSONObject ThirtyDayStats = jsonSymbolInfo.getJSONObject("30d");
+		info.ThirtyDayStats.max = ThirtyDayStats.getDouble("max");
+		info.ThirtyDayStats.min = ThirtyDayStats.getDouble("min");
+		info.ThirtyDayStats.vwap = ThirtyDayStats.getDouble("vwap");
+		info.ThirtyDayStats.vol = ThirtyDayStats.getLong("vol");
+		
+		return info;
+	}
+	
+	/*
 	 * get the order book for a particular symbol
 	 */
 	public OrderBook getOrderBook(String symbol){
@@ -264,9 +309,25 @@ public class Havelock implements Connector {
 	}
 	
 	/*
-	 * create order, return order id if sucessful, null otherwise
+	 * create order, return order with the id if successful
 	 */
-	public String createOrder(String symbol, ACTION action, double price, long quantity){
+	public Order createOrder(Order order){
+		
+		String symbol = order.symbol;
+		
+		ACTION action = null;
+		if(order.type == TYPE.BID){
+			action = ACTION.BUY;
+		} else if(order.type == TYPE.ASK){
+			action = ACTION.SELL;
+		} else {
+			//not expecting this case
+			System.err.println("Creating order and order type is not BID or ASK!");
+			return order;
+		}
+		
+		double price = order.price; 
+		long quantity = order.quantity;
 		String id = null;
 		
 		symbol = symbol.trim();
@@ -281,7 +342,7 @@ public class Havelock implements Connector {
 			var.put("action","sell");
 		} else {
 			//not expecting so return null
-			return null;
+			return order;
 		}
 		
 		String result = apiCall(CMD.ORDERCREATE,var);
@@ -291,13 +352,16 @@ public class Havelock implements Connector {
 		if(!status.equals(OK)) return null;
 		id = ""+jsonStatus.getLong("id");
 		
-		return id;
+		order.id = id;
+		
+		return order;
 	}
 	
 	/*
 	 * Cancels a particular order
 	 */
-	public boolean cancelOrder(String id){
+	public boolean cancelOrder(Order order){
+		String id = order.id;
 		HashMap<String,String> var = new HashMap<String,String>();
 		var.put("id", id);
 		String result = apiCall(CMD.ORDERCANCEL,var);
@@ -309,6 +373,5 @@ public class Havelock implements Connector {
 		} else {
 			return true;
 		}
-		
 	}
 }

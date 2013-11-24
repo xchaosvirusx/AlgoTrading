@@ -40,7 +40,7 @@ public class MarketMaker extends Algorithm {
 	
 	public final static int MAX_PROFIT_ADJUSTMENT_FACTOR = 2;
 	
-	public final static int MIN_AVERAGE_DAILY_VOL_IN_BTC = 10;
+	public final static int MIN_AVERAGE_DAILY_VOL_IN_BTC = 7;
 	
 	/*
 	 * Find the best eligible order we should peg to

@@ -332,12 +332,9 @@ public class MarketMaker extends Algorithm {
 						
 						double assetValueToPortfolioRatio = curNumUnits*symbolInfo.lastPrice/totalPortfolioMktValue;
 						
-						//Adjust bid and ask order size based on deviation of asset value % from ideal
+						//calculate adjustment factor based on deviation of asset value % from ideal
 						double bidSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.BID,assetValueToPortfolioRatio,idealAssetValuePercent);
-						bidSize = (long) (bidSize*bidSizeAdjustmentFactor);
-						
 						double askSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.ASK,assetValueToPortfolioRatio,idealAssetValuePercent);
-						askSize = (long) (askSize*askSizeAdjustmentFactor);
 						
 						/* Invert the size adjustment factor
 						 * For example in bid case, if bidSizeAdjustmentFactor is large, we want the threshold to be lower
@@ -365,8 +362,8 @@ public class MarketMaker extends Algorithm {
 							double excessProfit = pctSpread-MIN_PROFIT_TO_FEES_MULTIPLE*totalFees;
 							double profitAdjustmentFactor = excessProfit/(MIN_PROFIT_TO_FEES_MULTIPLE*totalFees);
 							profitAdjustmentFactor = Math.min(profitAdjustmentFactor, MAX_PROFIT_ADJUSTMENT_FACTOR);
-							askSize = (long)(askSize*profitAdjustmentFactor);
-							bidSize = (long)(bidSize*profitAdjustmentFactor);
+							askSize = (long)(askSize*profitAdjustmentFactor*askSizeAdjustmentFactor);
+							bidSize = (long)(bidSize*profitAdjustmentFactor*bidSizeAdjustmentFactor);
 							
 							Order newBid = new Order(TYPE.BID, "", "", symbol, -1, bidSize, 0);
 							Order newAsk = new Order(TYPE.ASK, "", "", symbol, -1, askSize, 0);

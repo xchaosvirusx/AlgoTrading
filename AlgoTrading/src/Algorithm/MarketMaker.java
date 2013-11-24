@@ -1,23 +1,23 @@
 package Algorithm;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.TreeSet;
 
-import Connector.Connector.ACTION;
 import Connector.Havelock;
 import DataStructure.*;
 import DataStructure.Order.TYPE;
+
+import java.util.ArrayList;
 
 public class MarketMaker extends Algorithm {
 	/*
 	 * how long to pause before checking the orderbook again
 	 * set to 10 SEC
 	 */
-	public final static long PAUSE_TIME = 20*1000;
+	public final static long PAUSE_TIME = 30*1000;
 	
 	/* 
 	 * how long before reseting the random component of bid ask sizes
@@ -30,7 +30,7 @@ public class MarketMaker extends Algorithm {
 	//threshold for the ratio of 7D volume to 1D volume, should be greater than this
 	public final static long VOLUME_RATIO_THRESHOLD = 3;
 	
-	public final static double NEUTRAL_IDEAL_ASSET_VALUE_PERCENT = 0.15;
+	public final static double NEUTRAL_IDEAL_ASSET_VALUE_PERCENT = 0.10;
 	//set the cap for the max ideal asset adjustment 
 	public final static double MAX_IDEAL_ASSET_VALUE_PERCENT_ADJUSTMENT = 0.05;
 	
@@ -215,8 +215,8 @@ public class MarketMaker extends Algorithm {
 		//need this to make sure sizeAdjustmentFactor is between 0 and 2
 		assetValueToPortfolioRatio = Math.min(assetValueToPortfolioRatio, 2*idealAssetValuePercent);
 		/*
-		 * negative devation means asset is underweight, so should buy more, so adjust bidSize up, askSize down
-		 * positive devation means asset is overweight, so should sell more, so adjust askSize up, bidSize down
+		 * negative deviation means asset is under weight, so should buy more, so adjust bidSize up, askSize down
+		 * positive deviation means asset is over weight, so should sell more, so adjust askSize up, bidSize down
 		 */
 		double deviation = assetValueToPortfolioRatio - idealAssetValuePercent;
 		
@@ -237,6 +237,11 @@ public class MarketMaker extends Algorithm {
 	public static void main(String[] args) {
 		int numSymbol = args.length;
 		ArrayList<String> symbols = new ArrayList<String>();
+		
+		if(numSymbol==0){
+			System.out.println("No Symbol given in argument. Exiting!");
+			return;
+		}
 		
 		for(int i=0; i<numSymbol; i++){
 			symbols.add(args[i]);
@@ -306,7 +311,8 @@ public class MarketMaker extends Algorithm {
 						long targetNumUnits = (long) (valueOfAssetAtIdealPct/symbolInfo.OneDayStats.vwap);
 						
 						//we want to achieve the target units in about 5 orders
-						long minDisplaySize = targetNumUnits/5;
+						//ceiling is used so the minDisplaySize is at least 1
+						long minDisplaySize = (long) Math.ceil(targetNumUnits/5.0);
 						long displaySizeRange = minDisplaySize/5;
 						
 						//get the current number of units we have already
@@ -341,6 +347,11 @@ public class MarketMaker extends Algorithm {
 						double bidSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.BID,assetValueToPortfolioRatio,idealAssetValuePercent);
 						double askSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.ASK,assetValueToPortfolioRatio,idealAssetValuePercent);
 						
+						//best ask in position 0 and next best is position 1
+						Order[] bestAsks= findBestEligibleOrders(sortedAsks, minDisplaySize/(askSizeAdjustmentFactor+0.01), orders);
+						//best bid in position 0 and next best is position 1
+						Order[] bestBids = findBestEligibleOrders(sortedBids, minDisplaySize/(bidSizeAdjustmentFactor+0.01), orders);
+						
 						/* Invert the size adjustment factor
 						 * For example in bid case, if bidSizeAdjustmentFactor is large, we want the threshold to be lower
 						 * since we want to buy earlier
@@ -349,13 +360,11 @@ public class MarketMaker extends Algorithm {
 						 */
 						double bidThreshold = (MAX_SIZE_ADJUSTMENT_FACTOR-bidSizeAdjustmentFactor)*minDisplaySize;
 						double askThreshold = (MAX_SIZE_ADJUSTMENT_FACTOR-askSizeAdjustmentFactor)*minDisplaySize;
-						
-						//best ask in position 0 and next best is position 1
-						Order[] bestAsks= findBestEligibleOrders(sortedAsks, askThreshold, orders);
-						//best bid in position 0 and next best is position 1
-						Order[] bestBids = findBestEligibleOrders(sortedBids,bidThreshold, orders);
+						//for calculating spread only
+						Order[] spreadAsks = findBestEligibleOrders(sortedAsks, askThreshold, orders);
+						Order[] spreadBids = findBestEligibleOrders(sortedBids, bidThreshold, orders);
 			
-						double pctSpread = calculatePercentSpread(bestBids[0],bestAsks[0]);
+						double pctSpread = calculatePercentSpread(spreadBids[0],spreadAsks[0]);
 						
 						//calculate pctSpread MA
 						if(pctSpreadMA[symIndex]==0){
@@ -414,8 +423,6 @@ public class MarketMaker extends Algorithm {
 						System.out.format(keyVars,symbol,pctSpread*100,pctSpreadMA[symIndex]*100,minDisplaySize,
 								profitAdjustmentFactor,bidSizeAdjustmentFactor,askSizeAdjustmentFactor,idealAssetValuePercentAdjustment);
 						
-						
-			
 				}
 				//catch any exception that might arise record it and try again...
 			}catch(Exception e){

@@ -17,7 +17,7 @@ public class MarketMaker extends Algorithm {
 	 * how long to pause before checking the orderbook again
 	 * set to 10 SEC
 	 */
-	public final static long PAUSE_TIME = 10*1000;
+	public final static long PAUSE_TIME = 20*1000;
 	
 	/* 
 	 * how long before reseting the random component of bid ask sizes

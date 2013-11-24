@@ -394,7 +394,7 @@ public class MarketMaker extends Algorithm {
 									+" ProfitAdjF: " + profitAdjustmentFactor
 									+" BidSizeAdjF: " + bidSizeAdjustmentFactor
 									+" AskSizeAdjF: " + askSizeAdjustmentFactor
-									+" IdealPctAdj: " + idealAssetValuePercentAdjustment;
+									+" IdealPctAdj: " + idealAssetValuePercentAdjustment + "\n";
 							System.out.println(keyVars);
 						}
 						

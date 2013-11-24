@@ -123,9 +123,9 @@ public class MarketMaker extends Algorithm {
 				bestOrder = nextBestOrder;
 			//look at if anything has been filled, if so refresh the order
 			} else if(bestOrder.filled > 0 || bestOrder.quantity!=newOrder.quantity){
-				if(side == TYPE.BID){
+				if(side == TYPE.BID && bestOrder.filled > 0){
 					System.out.println("Symbol: "+ symbol + " Bid has been partially filled.");
-				} else if(side == TYPE.ASK){
+				} else if(side == TYPE.ASK && bestOrder.filled > 0){
 					System.out.println("Symbol: "+ symbol + " Ask has been partially filled.");
 				}
 				hl.cancelOrder(bestOrder);

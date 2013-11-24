@@ -42,6 +42,10 @@ public class MarketMaker extends Algorithm {
 	
 	public final static int MIN_AVERAGE_DAILY_VOL_IN_BTC = 7;
 	
+	public final static double MA_DECAY_FACTOR = 0.01;
+	
+	public final static double SPREAD_DROP_THRESHOLD = 3/4;
+	
 	/*
 	 * Find the best eligible order we should peg to
 	 * and the second best eligible order
@@ -245,6 +249,7 @@ public class MarketMaker extends Algorithm {
 		
 		int[] bidSizeRandomComponents = new int[numSymbol];
 		int[] askSizeRandomComponents = new int[numSymbol];
+		double[] pctSpreadMA = new double[numSymbol];
 		
 		//Infinite loop
 		while(true){
@@ -352,16 +357,25 @@ public class MarketMaker extends Algorithm {
 			
 						double pctSpread = calculatePercentSpread(bestBids[0],bestAsks[0]);
 						
+						//calculate pctSpread MA
+						if(pctSpreadMA[symIndex]==0){
+							pctSpreadMA[symIndex]=pctSpread;
+						} else {
+							pctSpreadMA[symIndex]=(1-MA_DECAY_FACTOR)*pctSpreadMA[symIndex] + MA_DECAY_FACTOR*pctSpread;
+						}
+						
+						//calculated profit adjustment factor
+						double excessProfit = pctSpread-MIN_PROFIT_TO_FEES_MULTIPLE*totalFees;
+						double profitAdjustmentFactor = excessProfit/(MIN_PROFIT_TO_FEES_MULTIPLE*totalFees);
+						profitAdjustmentFactor = Math.min(profitAdjustmentFactor, MAX_PROFIT_ADJUSTMENT_FACTOR);
+						
 						//market make only if spread is greater than MIN_PROFIT_TO_FEES_MULTIPLE times the total fees
-						//profit check
-						if(pctSpread>MIN_PROFIT_TO_FEES_MULTIPLE*totalFees){
+						//profit check and spread drop check
+						if(pctSpread>MIN_PROFIT_TO_FEES_MULTIPLE*totalFees && pctSpread>pctSpreadMA[symIndex]*SPREAD_DROP_THRESHOLD){
 							/* 
 							 * adjust the sizes based on how profitable it is
 							 * base case is 3 times the totalFees
 							 */
-							double excessProfit = pctSpread-MIN_PROFIT_TO_FEES_MULTIPLE*totalFees;
-							double profitAdjustmentFactor = excessProfit/(MIN_PROFIT_TO_FEES_MULTIPLE*totalFees);
-							profitAdjustmentFactor = Math.min(profitAdjustmentFactor, MAX_PROFIT_ADJUSTMENT_FACTOR);
 							askSize = (long)(askSize*profitAdjustmentFactor*askSizeAdjustmentFactor);
 							bidSize = (long)(bidSize*profitAdjustmentFactor*bidSizeAdjustmentFactor);
 							
@@ -386,17 +400,19 @@ public class MarketMaker extends Algorithm {
 							Set<Order> toKeepBids = new HashSet<Order>();
 							toKeepBids.add(orders.getOrder(bestBids[0].id));
 							toKeepBids.add(orders.getOrder(newBid.id));
-							cleanUpOrders(TYPE.BID, orders, toKeepBids, hl);
-							
-							String keyVars = "Symbol: " + symbol
-									+" PctSpread: " + pctSpread*100
-									+" MinSize: " + minDisplaySize
-									+" ProfitAdjF: " + profitAdjustmentFactor
-									+" BidSizeAdjF: " + bidSizeAdjustmentFactor
-									+" AskSizeAdjF: " + askSizeAdjustmentFactor
-									+" IdealPctAdj: " + idealAssetValuePercentAdjustment + "\n";
-							System.out.println(keyVars);
+							cleanUpOrders(TYPE.BID, orders, toKeepBids, hl);	
 						}
+						
+						String keyVars =  "Symbol: %s"
+								+" PctSpread: %.2f"
+								+" PctSpreadMA: %.2f"
+								+" MinSize: %d"
+								+" ProfitAdjF: %.2f"
+								+" BidSizeAdjF: %.2f" 
+								+" AskSizeAdjF: %.2f"
+								+" IdealPctAdj: %.2f%n";
+						System.out.format(keyVars,symbol,pctSpread*100,pctSpreadMA[symIndex]*100,minDisplaySize,
+								profitAdjustmentFactor,bidSizeAdjustmentFactor,askSizeAdjustmentFactor,idealAssetValuePercentAdjustment);
 						
 						
 			

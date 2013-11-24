@@ -277,8 +277,8 @@ public class MarketMaker extends Algorithm {
 						
 						//get some basic asset price trend information (ie increasing recently or decreasing recently)
 						//see if the 7 day vwap is higher or lower than 1 day vwap
-						double vwapDiff = symbolInfo.OneDayStats.vwap-symbolInfo.SevenDayStats.vwap;
-						double vwapDiffPct = vwapDiff/((symbolInfo.OneDayStats.vwap+symbolInfo.SevenDayStats.vwap)/2);
+						double vwapDiff = symbolInfo.SevenDayStats.vwap-symbolInfo.ThirtyDayStats.vwap;
+						double vwapDiffPct = vwapDiff/((symbolInfo.SevenDayStats.vwap+symbolInfo.ThirtyDayStats.vwap)/2);
 						
 						double idealAssetValuePercentAdjustment = Math.signum(vwapDiffPct)*Math.min(Math.abs(vwapDiffPct),MAX_IDEAL_ASSET_VALUE_PERCENT_ADJUSTMENT);
 						/* adjust the ideal asset value percent based on the neutral value + the adjustment which depends

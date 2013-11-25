@@ -15,9 +15,9 @@ import java.util.ArrayList;
 public class MarketMaker extends Algorithm {
 	/*
 	 * how long to pause before checking the orderbook again
-	 * set to 10 SEC
+	 * set to 30 SEC
 	 */
-	public final static long PAUSE_TIME = 30*1000;
+	public final static long PAUSE_TIME = 60*1000;
 	
 	/* 
 	 * how long before reseting the random component of bid ask sizes
@@ -30,13 +30,13 @@ public class MarketMaker extends Algorithm {
 	//threshold for the ratio of 7D volume to 1D volume, should be greater than this
 	public final static long VOLUME_RATIO_THRESHOLD = 3;
 	
-	public final static double NEUTRAL_IDEAL_ASSET_VALUE_PERCENT = 0.10;
+	public final static double NEUTRAL_IDEAL_ASSET_VALUE_PERCENT = 0.15;
 	//set the cap for the max ideal asset adjustment 
 	public final static double MAX_IDEAL_ASSET_VALUE_PERCENT_ADJUSTMENT = 0.05;
 	
 	public final static double MAX_SIZE_ADJUSTMENT_FACTOR = 2;
 	
-	public final static int MIN_PROFIT_TO_FEES_MULTIPLE = 5;
+	public final static int MIN_PROFIT_TO_FEES_MULTIPLE = 10;
 	
 	public final static int MAX_PROFIT_ADJUSTMENT_FACTOR = 2;
 	
@@ -347,10 +347,13 @@ public class MarketMaker extends Algorithm {
 						double bidSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.BID,assetValueToPortfolioRatio,idealAssetValuePercent);
 						double askSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.ASK,assetValueToPortfolioRatio,idealAssetValuePercent);
 						
+						double bestAskAdjustmentFactor = 1/Math.pow(askSizeAdjustmentFactor+0.01,4);
+						double bestBidAdjustmentFactor = 1/Math.pow(bidSizeAdjustmentFactor+0.01,4);
+						
 						//best ask in position 0 and next best is position 1
-						Order[] bestAsks= findBestEligibleOrders(sortedAsks, minDisplaySize/(askSizeAdjustmentFactor+0.01), orders);
+						Order[] bestAsks= findBestEligibleOrders(sortedAsks, minDisplaySize*bestAskAdjustmentFactor, orders);
 						//best bid in position 0 and next best is position 1
-						Order[] bestBids = findBestEligibleOrders(sortedBids, minDisplaySize/(bidSizeAdjustmentFactor+0.01), orders);
+						Order[] bestBids = findBestEligibleOrders(sortedBids, minDisplaySize*bestBidAdjustmentFactor, orders);
 						
 						/* Invert the size adjustment factor
 						 * For example in bid case, if bidSizeAdjustmentFactor is large, we want the threshold to be lower
@@ -378,18 +381,18 @@ public class MarketMaker extends Algorithm {
 						double profitAdjustmentFactor = excessProfit/(MIN_PROFIT_TO_FEES_MULTIPLE*totalFees);
 						profitAdjustmentFactor = Math.min(profitAdjustmentFactor, MAX_PROFIT_ADJUSTMENT_FACTOR);
 						
+						/* 
+						 * adjust the sizes based on how profitable it is
+						 */
+						askSize = (long)(askSize*profitAdjustmentFactor*askSizeAdjustmentFactor);
+						bidSize = (long)(bidSize*profitAdjustmentFactor*bidSizeAdjustmentFactor);
+						
+						Order newBid = new Order(TYPE.BID, "", "", symbol, -1, bidSize, 0);
+						Order newAsk = new Order(TYPE.ASK, "", "", symbol, -1, askSize, 0);
+						
 						//market make only if spread is greater than MIN_PROFIT_TO_FEES_MULTIPLE times the total fees
 						//profit check and spread drop check
 						if(pctSpread>MIN_PROFIT_TO_FEES_MULTIPLE*totalFees && pctSpread>pctSpreadMA[symIndex]*SPREAD_DROP_THRESHOLD){
-							/* 
-							 * adjust the sizes based on how profitable it is
-							 * base case is 3 times the totalFees
-							 */
-							askSize = (long)(askSize*profitAdjustmentFactor*askSizeAdjustmentFactor);
-							bidSize = (long)(bidSize*profitAdjustmentFactor*bidSizeAdjustmentFactor);
-							
-							Order newBid = new Order(TYPE.BID, "", "", symbol, -1, bidSize, 0);
-							Order newAsk = new Order(TYPE.ASK, "", "", symbol, -1, askSize, 0);
 							
 							//ask side
 							newAsk = checkSide(newAsk, orders, bestAsks[0], bestAsks[1], curNumUnits, portfolio.balanceAvailable,hl);
@@ -398,19 +401,19 @@ public class MarketMaker extends Algorithm {
 							
 							//get the status of my orders currently
 							orders = hl.getOrders(symbol);
-							
-							//clean up ask orders
-							Set<Order> toKeepAsks = new HashSet<Order>();
-							toKeepAsks.add(orders.getOrder(bestAsks[0].id));
-							toKeepAsks.add(orders.getOrder(newAsk.id));
-							cleanUpOrders(TYPE.ASK, orders, toKeepAsks, hl);
-							
-							//clean up bid orders
-							Set<Order> toKeepBids = new HashSet<Order>();
-							toKeepBids.add(orders.getOrder(bestBids[0].id));
-							toKeepBids.add(orders.getOrder(newBid.id));
-							cleanUpOrders(TYPE.BID, orders, toKeepBids, hl);	
 						}
+						
+						//clean up ask orders
+						Set<Order> toKeepAsks = new HashSet<Order>();
+						toKeepAsks.add(orders.getOrder(bestAsks[0].id));
+						toKeepAsks.add(orders.getOrder(newAsk.id));
+						cleanUpOrders(TYPE.ASK, orders, toKeepAsks, hl);
+						
+						//clean up bid orders
+						Set<Order> toKeepBids = new HashSet<Order>();
+						toKeepBids.add(orders.getOrder(bestBids[0].id));
+						toKeepBids.add(orders.getOrder(newBid.id));
+						cleanUpOrders(TYPE.BID, orders, toKeepBids, hl);	
 						
 						String keyVars =  "Symbol: %s"
 								+" PctSpread: %.2f"

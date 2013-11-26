@@ -386,8 +386,8 @@ public class MarketMaker extends Algorithm {
 						/* 
 						 * adjust the sizes based on how profitable it is
 						 */
-						askSize = (long)(askSize*profitAdjustmentFactor*askSizeAdjustmentFactor);
-						bidSize = (long)(bidSize*profitAdjustmentFactor*bidSizeAdjustmentFactor);
+						askSize = (long) Math.ceil(askSize*profitAdjustmentFactor*askSizeAdjustmentFactor);
+						bidSize = (long) Math.ceil(bidSize*profitAdjustmentFactor*bidSizeAdjustmentFactor);
 						
 						Order newBid = new Order(TYPE.BID, "", "", symbol, -1, bidSize, 0);
 						Order newAsk = new Order(TYPE.ASK, "", "", symbol, -1, askSize, 0);

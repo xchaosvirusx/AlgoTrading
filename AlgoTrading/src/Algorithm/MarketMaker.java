@@ -314,7 +314,7 @@ public class MarketMaker extends Algorithm {
 						
 						//we want to achieve the target units in about 5 orders
 						//ceiling is used so the minDisplaySize is at least 1
-						long minDisplaySize = (long) Math.ceil(targetNumUnits/5.0);
+						long minDisplaySize = (long) Math.ceil(targetNumUnits/10.0);
 						long displaySizeRange = minDisplaySize/5;
 						
 						//get the current number of units we have already

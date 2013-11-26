@@ -271,20 +271,22 @@ public class MarketMaker extends Algorithm {
 						 * otherwise the symbol might be new (ie IPO happened recently and we
 						 * dont want to touch it)
 						 */
+						/*
 						if(volumeRatio<VOLUME_RATIO_THRESHOLD){
 							System.out.println("Volume Ratio requirement not met for " + symbol);
 							continue;
 						}
-						
+						*/
 						/*
 						 * check that average daily volume is greater than the min required
 						 */
+						/*
 						double minDailyVolInBTC = symbolInfo.SevenDayStats.vol*symbolInfo.SevenDayStats.vwap/7;
 						if(minDailyVolInBTC<MIN_AVERAGE_DAILY_VOL_IN_BTC){
 							System.out.println("Average Daily Volume requirement not met for " + symbol);
 							continue;
 						}
-						
+						*/
 						//get some basic asset price trend information (ie increasing recently or decreasing recently)
 						//see if the 7 day vwap is higher or lower than 1 day vwap
 						double vwapDiff = symbolInfo.SevenDayStats.vwap-symbolInfo.ThirtyDayStats.vwap;

@@ -2,6 +2,7 @@ package Algorithm;
 
 import java.sql.Timestamp;
 import java.util.Collection;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
@@ -254,7 +255,7 @@ public class MarketMaker extends Algorithm {
 
 		double totalFees = Havelock.BUY_FEE+Havelock.SELL_FEE;
 		
-		 java.util.Date date= new java.util.Date();
+		Date date= null;
 		 
 		int[] bidSizeRandomComponents = new int[numSymbol];
 		int[] askSizeRandomComponents = new int[numSymbol];
@@ -262,6 +263,7 @@ public class MarketMaker extends Algorithm {
 		
 		//Infinite loop
 		while(true){
+			date = new java.util.Date();
 			System.out.println(new Timestamp(date.getTime()));
 			try{
 				for(int symIndex = 0; symIndex < symbols.size(); symIndex++){

@@ -47,6 +47,7 @@ public class MarketMaker extends Algorithm {
 	
 	public final static double SPREAD_DROP_THRESHOLD = 3.0/4;
 	
+	public final static int IDEAL_TIGHTENING_FACTOR = 6;
 	/*
 	 * Find the best eligible order we should peg to
 	 * and the second best eligible order
@@ -330,8 +331,8 @@ public class MarketMaker extends Algorithm {
 						double bidSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.BID,assetValueToPortfolioRatio,idealAssetValuePercent);
 						double askSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.ASK,assetValueToPortfolioRatio,idealAssetValuePercent);
 						
-						double bestAskAdjustmentFactor = 1/Math.pow(askSizeAdjustmentFactor+0.01,4);
-						double bestBidAdjustmentFactor = 1/Math.pow(bidSizeAdjustmentFactor+0.01,4);
+						double bestAskAdjustmentFactor = 1/Math.pow(askSizeAdjustmentFactor+0.0001,IDEAL_TIGHTENING_FACTOR);
+						double bestBidAdjustmentFactor = 1/Math.pow(bidSizeAdjustmentFactor+0.0001,IDEAL_TIGHTENING_FACTOR);
 						
 						//best ask in position 0 and next best is position 1
 						Order[] bestAsks= findBestEligibleOrders(sortedAsks, minDisplaySize*bestAskAdjustmentFactor, orders);

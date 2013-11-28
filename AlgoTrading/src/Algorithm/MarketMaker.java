@@ -47,7 +47,7 @@ public class MarketMaker extends Algorithm {
 	
 	public final static double SPREAD_DROP_THRESHOLD = 3.0/4;
 	
-	public final static int IDEAL_TIGHTENING_FACTOR = 6;
+	public final static int IDEAL_TIGHTENING_FACTOR = 7;
 	/*
 	 * Find the best eligible order we should peg to
 	 * and the second best eligible order

@@ -32,23 +32,26 @@ public class MarketMaker extends Algorithm {
 	//threshold for the ratio of 7D volume to 1D volume, should be greater than this
 	public final static long VOLUME_RATIO_THRESHOLD = 3;
 	
-	public final static double NEUTRAL_IDEAL_ASSET_VALUE_PERCENT = 0.15;
+	public final static double NEUTRAL_IDEAL_ASSET_VALUE_PERCENT = 0.125;
 	//set the cap for the max ideal asset adjustment 
 	public final static double MAX_IDEAL_ASSET_VALUE_PERCENT_ADJUSTMENT = 0.05;
 	
 	public final static double MAX_SIZE_ADJUSTMENT_FACTOR = 2;
 	
 	public final static int MIN_PROFIT_TO_FEES_MULTIPLE = 10;
-	
-	public final static int MAX_PROFIT_ADJUSTMENT_FACTOR = 2;
-	
-	public final static int MIN_AVERAGE_DAILY_VOL_IN_BTC = 7;
-	
+	/*
+	 * How much the MA should decay by
+	 */
 	public final static double MA_DECAY_FACTOR = 0.01;
 	
 	public final static double SPREAD_DROP_THRESHOLD = 3.0/4;
-	
+	/*
+	 * the power we raise the inverse of the best bid/ask adjustment factors by
+	 * the higher the power, the less likely our holding will deviate from ideal
+	 * value percent
+	 */
 	public final static int IDEAL_TIGHTENING_FACTOR = 7;
+	
 	/*
 	 * Find the best eligible order we should peg to
 	 * and the second best eligible order
@@ -263,16 +266,25 @@ public class MarketMaker extends Algorithm {
 		
 		//Infinite loop
 		while(true){
-			date = new java.util.Date();
+			date = new Date();
 			System.out.println(new Timestamp(date.getTime()));
 			try{
 				for(int symIndex = 0; symIndex < symbols.size(); symIndex++){
 						String symbol = symbols.get(symIndex);
+						/*
+						 * Get information from Havelock
+						 */
 						//get symbol information, include some volume price stats
 						SymbolInfo symbolInfo = hl.getSymbolInfo(symbol);
+						//get portfolio information
+						Portfolio portfolio = hl.getPortfolio();
+						//get open orders
+						Orders orders = hl.getOrders(symbol);
+						//Analyze current order book state
+						OrderBook orderbook = hl.getOrderBook(symbol);
 
 						//get some basic asset price trend information (ie increasing recently or decreasing recently)
-						//see if the 7 day vwap is higher or lower than 1 day vwap
+						//see if the 7 day vwap is higher or lower than 30 day vwap
 						double vwapDiff = symbolInfo.SevenDayStats.vwap-symbolInfo.ThirtyDayStats.vwap;
 						double vwapDiffPct = vwapDiff/((symbolInfo.SevenDayStats.vwap+symbolInfo.ThirtyDayStats.vwap)/2);
 						
@@ -286,8 +298,6 @@ public class MarketMaker extends Algorithm {
 						 */
 						double idealAssetValuePercent = NEUTRAL_IDEAL_ASSET_VALUE_PERCENT + idealAssetValuePercentAdjustment;
 						
-						//get portfolio information
-						Portfolio portfolio = hl.getPortfolio();
 						
 						/* calculate the targe number of shares we want in our portfolio based on 
 						 * the percent value we want the asset be worth in our portfolio
@@ -313,19 +323,16 @@ public class MarketMaker extends Algorithm {
 							bidSizeRandomComponents[symIndex] = (int)(Math.random() * (displaySizeRange+1));
 							askSizeRandomComponents[symIndex] = (int)(Math.random() * (displaySizeRange+1));
 						}
+						
+						//set bid and ask size
+						long bidSize = minDisplaySize + bidSizeRandomComponents[symIndex];
+						long askSize = minDisplaySize + askSizeRandomComponents[symIndex];
 					
 					
-						//get open orders
-						Orders orders = hl.getOrders(symbol);
-						
-						//Analyze current order book state
-						OrderBook orderbook = hl.getOrderBook(symbol);
-						
+						//get sorted orderbook info
 						TreeSet<Order> sortedAsks = orderbook.getBestAsk();
 						TreeSet<Order> sortedBids = orderbook.getBestBid();
 						
-						long bidSize = minDisplaySize + bidSizeRandomComponents[symIndex];
-						long askSize = minDisplaySize + askSizeRandomComponents[symIndex];
 						
 						double assetValueToPortfolioRatio = curNumUnits*symbolInfo.lastPrice/totalPortfolioMktValue;
 						
@@ -380,9 +387,10 @@ public class MarketMaker extends Algorithm {
 							//bid side
 							newBid = checkSide(newBid, orders, bestBids[0], bestBids[1], curNumUnits, portfolio.balanceAvailable,hl);
 							
-							//get the status of my orders currently
-							orders = hl.getOrders(symbol);
 						}
+						
+						//get the status of my orders currently
+						orders = hl.getOrders(symbol);
 						
 						//clean up ask orders
 						Set<Order> toKeepAsks = new HashSet<Order>();
@@ -401,10 +409,12 @@ public class MarketMaker extends Algorithm {
 								+" PctSpreadMA: %.2f"
 								+" MinSize: %d"
 								+" BidSizeAdjF: %.2f" 
+								+" BestBidAdjF: %.2f" 
 								+" AskSizeAdjF: %.2f"
+								+" BestAskAdjF: %.2f" 
 								+" IdealPctAdj: %.2f%n";
 						System.out.format(keyVars,symbol,pctSpread*100,pctSpreadMA[symIndex]*100,minDisplaySize,
-								bidSizeAdjustmentFactor,askSizeAdjustmentFactor,idealAssetValuePercentAdjustment);
+								bidSizeAdjustmentFactor,bestBidAdjustmentFactor,askSizeAdjustmentFactor,bestAskAdjustmentFactor,idealAssetValuePercentAdjustment);
 						
 				}
 				//catch any exception that might arise record it and try again...

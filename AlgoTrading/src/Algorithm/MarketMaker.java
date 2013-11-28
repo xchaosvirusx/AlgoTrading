@@ -1,5 +1,6 @@
 package Algorithm;
 
+import java.sql.Timestamp;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -44,7 +45,7 @@ public class MarketMaker extends Algorithm {
 	
 	public final static double MA_DECAY_FACTOR = 0.01;
 	
-	public final static double SPREAD_DROP_THRESHOLD = 3/4;
+	public final static double SPREAD_DROP_THRESHOLD = 3.0/4;
 	
 	/*
 	 * Find the best eligible order we should peg to
@@ -252,41 +253,21 @@ public class MarketMaker extends Algorithm {
 
 		double totalFees = Havelock.BUY_FEE+Havelock.SELL_FEE;
 		
+		 java.util.Date date= new java.util.Date();
+		 
 		int[] bidSizeRandomComponents = new int[numSymbol];
 		int[] askSizeRandomComponents = new int[numSymbol];
 		double[] pctSpreadMA = new double[numSymbol];
 		
 		//Infinite loop
 		while(true){
-		
+			System.out.println(new Timestamp(date.getTime()));
 			try{
 				for(int symIndex = 0; symIndex < symbols.size(); symIndex++){
 						String symbol = symbols.get(symIndex);
 						//get symbol information, include some volume price stats
 						SymbolInfo symbolInfo = hl.getSymbolInfo(symbol);
-						//calculate some sanity checks first
-						double volumeRatio = symbolInfo.SevenDayStats.vol/symbolInfo.OneDayStats.vol;
-						/*
-						 * we would expect the volume ratio is greater than the threshold
-						 * otherwise the symbol might be new (ie IPO happened recently and we
-						 * dont want to touch it)
-						 */
-						/*
-						if(volumeRatio<VOLUME_RATIO_THRESHOLD){
-							System.out.println("Volume Ratio requirement not met for " + symbol);
-							continue;
-						}
-						*/
-						/*
-						 * check that average daily volume is greater than the min required
-						 */
-						/*
-						double minDailyVolInBTC = symbolInfo.SevenDayStats.vol*symbolInfo.SevenDayStats.vwap/7;
-						if(minDailyVolInBTC<MIN_AVERAGE_DAILY_VOL_IN_BTC){
-							System.out.println("Average Daily Volume requirement not met for " + symbol);
-							continue;
-						}
-						*/
+
 						//get some basic asset price trend information (ie increasing recently or decreasing recently)
 						//see if the 7 day vwap is higher or lower than 1 day vwap
 						double vwapDiff = symbolInfo.SevenDayStats.vwap-symbolInfo.ThirtyDayStats.vwap;
@@ -314,7 +295,7 @@ public class MarketMaker extends Algorithm {
 						
 						//we want to achieve the target units in about 5 orders
 						//ceiling is used so the minDisplaySize is at least 1
-						long minDisplaySize = (long) Math.ceil(targetNumUnits/10.0);
+						long minDisplaySize = (long) Math.max(targetNumUnits/10.0,1);
 						long displaySizeRange = minDisplaySize/5;
 						
 						//get the current number of units we have already
@@ -378,16 +359,11 @@ public class MarketMaker extends Algorithm {
 							pctSpreadMA[symIndex]=(1-MA_DECAY_FACTOR)*pctSpreadMA[symIndex] + MA_DECAY_FACTOR*pctSpread;
 						}
 						
-						//calculated profit adjustment factor
-						double excessProfit = pctSpread-MIN_PROFIT_TO_FEES_MULTIPLE*totalFees;
-						double profitAdjustmentFactor = excessProfit/(MIN_PROFIT_TO_FEES_MULTIPLE*totalFees);
-						profitAdjustmentFactor = Math.min(profitAdjustmentFactor, MAX_PROFIT_ADJUSTMENT_FACTOR);
-						
 						/* 
-						 * adjust the sizes based on how profitable it is
+						 * adjust the sizes
 						 */
-						askSize = (long) Math.ceil(askSize*profitAdjustmentFactor*askSizeAdjustmentFactor);
-						bidSize = (long) Math.ceil(bidSize*profitAdjustmentFactor*bidSizeAdjustmentFactor);
+						askSize = (long) Math.ceil(askSize*askSizeAdjustmentFactor);
+						bidSize = (long) Math.ceil(bidSize*bidSizeAdjustmentFactor);
 						
 						Order newBid = new Order(TYPE.BID, "", "", symbol, -1, bidSize, 0);
 						Order newAsk = new Order(TYPE.ASK, "", "", symbol, -1, askSize, 0);
@@ -421,12 +397,11 @@ public class MarketMaker extends Algorithm {
 								+" PctSpread: %.2f"
 								+" PctSpreadMA: %.2f"
 								+" MinSize: %d"
-								+" ProfitAdjF: %.2f"
 								+" BidSizeAdjF: %.2f" 
 								+" AskSizeAdjF: %.2f"
 								+" IdealPctAdj: %.2f%n";
 						System.out.format(keyVars,symbol,pctSpread*100,pctSpreadMA[symIndex]*100,minDisplaySize,
-								profitAdjustmentFactor,bidSizeAdjustmentFactor,askSizeAdjustmentFactor,idealAssetValuePercentAdjustment);
+								bidSizeAdjustmentFactor,askSizeAdjustmentFactor,idealAssetValuePercentAdjustment);
 						
 				}
 				//catch any exception that might arise record it and try again...

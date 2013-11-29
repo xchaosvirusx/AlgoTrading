@@ -32,7 +32,7 @@ public class MarketMaker extends Algorithm {
 	//threshold for the ratio of 7D volume to 1D volume, should be greater than this
 	public final static long VOLUME_RATIO_THRESHOLD = 3;
 	
-	public final static double NEUTRAL_IDEAL_ASSET_VALUE_PERCENT = 0.125;
+	public final static double NEUTRAL_IDEAL_ASSET_VALUE_PERCENT = 0.1;
 	//set the cap for the max ideal asset adjustment 
 	public final static double MAX_IDEAL_ASSET_VALUE_PERCENT_ADJUSTMENT = 0.05;
 	
@@ -96,12 +96,16 @@ public class MarketMaker extends Algorithm {
 		return result;
 	}
 	
-	private static double calculateAbsoluteSpread(Order bid, Order ask){
+	public static double calculateMidPrice(Order bid, Order ask){
+		return (ask.price + bid.price)/2;
+	}
+	
+	public static double calculateAbsoluteSpread(Order bid, Order ask){
 		return ask.price - bid.price;
 	}
 	
-	private static double calculatePercentSpread(Order bid, Order ask){
-		return calculateAbsoluteSpread(bid, ask)/((ask.price + bid.price)/2);
+	public static double calculatePercentSpread(Order bid, Order ask){
+		return calculateAbsoluteSpread(bid, ask)/calculateMidPrice(bid,ask);
 	}
 	
 	private static Order checkSide(Order newOrder, Orders myOrders, Order bestOrder, Order nextBestOrder, long curUnits, double avaliableBalance, Havelock hl){
@@ -340,8 +344,11 @@ public class MarketMaker extends Algorithm {
 						double bidSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.BID,assetValueToPortfolioRatio,idealAssetValuePercent);
 						double askSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.ASK,assetValueToPortfolioRatio,idealAssetValuePercent);
 						
-						double bestAskAdjustmentFactor = 1/Math.pow(askSizeAdjustmentFactor+0.0001,IDEAL_TIGHTENING_FACTOR);
-						double bestBidAdjustmentFactor = 1/Math.pow(bidSizeAdjustmentFactor+0.0001,IDEAL_TIGHTENING_FACTOR);
+						double bestAskAdjustmentFactor = Math.max(askSizeAdjustmentFactor,0.01);
+						bestAskAdjustmentFactor=1/Math.pow(bestAskAdjustmentFactor,IDEAL_TIGHTENING_FACTOR);
+						
+						double bestBidAdjustmentFactor = Math.max(bidSizeAdjustmentFactor,0.01);
+						bestBidAdjustmentFactor=1/Math.pow(bestBidAdjustmentFactor,IDEAL_TIGHTENING_FACTOR);
 						
 						//best ask in position 0 and next best is position 1
 						Order[] bestAsks= findBestEligibleOrders(sortedAsks, minDisplaySize*bestAskAdjustmentFactor, orders);

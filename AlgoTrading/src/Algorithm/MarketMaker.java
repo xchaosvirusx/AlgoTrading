@@ -17,7 +17,7 @@ import java.util.ArrayList;
 public class MarketMaker extends Algorithm {
 	/*
 	 * how long to pause before checking the orderbook again
-	 * set to 30 SEC
+	 * set to 60 SEC
 	 */
 	public final static long PAUSE_TIME = 60*1000;
 	
@@ -29,16 +29,11 @@ public class MarketMaker extends Algorithm {
 	
 	public final static long RANDOM_RESET_IN_PAUSE_TIME_CYCLE = RANDOM_RESET_TIME/PAUSE_TIME;
 	
-	//threshold for the ratio of 7D volume to 1D volume, should be greater than this
-	public final static long VOLUME_RATIO_THRESHOLD = 3;
-	
-	public final static double NEUTRAL_IDEAL_ASSET_VALUE_PERCENT = 0.1;
-	//set the cap for the max ideal asset adjustment 
-	public final static double MAX_IDEAL_ASSET_VALUE_PERCENT_ADJUSTMENT = 0.05;
-	
 	public final static double MAX_SIZE_ADJUSTMENT_FACTOR = 2;
 	
 	public final static int MIN_PROFIT_TO_FEES_MULTIPLE = 10;
+	
+	public final static double MAX_PORTFOLIO_VALUE_PERCENT = 0.1;
 	/*
 	 * How much the MA should decay by
 	 */
@@ -51,6 +46,13 @@ public class MarketMaker extends Algorithm {
 	 * value percent
 	 */
 	public final static int IDEAL_TIGHTENING_FACTOR = 7;
+	
+	/*
+	 * number of cycles per day, one cycle is how long we pause for
+	 */
+	public final static long CYCLES_PER_DAY = 24*60*60*1000/PAUSE_TIME;
+	
+	public final static long CYCLE_VOLUME_HOLDING_MULTIPLE = 20;
 	
 	/*
 	 * Find the best eligible order we should peg to
@@ -220,22 +222,22 @@ public class MarketMaker extends Algorithm {
 	 * generate a size adjustment factor between 0 and MAX_SIZE_ADJUSTMENT_FACTOR 
 	 * to increase the reversion process (ie try to hit the ideal asset value percent)
 	 */
-	private static double calculateSizeAdjustmentFactor(TYPE side, double assetValueToPortfolioRatio, double idealAssetValuePercent){
+	private static double calculateSizeAdjustmentFactor(TYPE side, long curNumUnits, long targetNumUnits){
 		
 		//need this to make sure sizeAdjustmentFactor is between 0 and 2
-		assetValueToPortfolioRatio = Math.min(assetValueToPortfolioRatio, 2*idealAssetValuePercent);
+		curNumUnits = Math.min(curNumUnits, 2*targetNumUnits);
 		/*
 		 * negative deviation means asset is under weight, so should buy more, so adjust bidSize up, askSize down
 		 * positive deviation means asset is over weight, so should sell more, so adjust askSize up, bidSize down
 		 */
-		double deviation = assetValueToPortfolioRatio - idealAssetValuePercent;
+		double deviation = curNumUnits - targetNumUnits;
 		
 		double sizeAdjustmentFactor = -1;
 		
 		if(side == TYPE.BID){
-			sizeAdjustmentFactor = 1 - deviation/idealAssetValuePercent;
+			sizeAdjustmentFactor = 1 - deviation/targetNumUnits;
 		} else if(side == TYPE.ASK){
-			sizeAdjustmentFactor = 1 + deviation/idealAssetValuePercent;
+			sizeAdjustmentFactor = 1 + deviation/targetNumUnits;
 		}
 		
 		return MAX_SIZE_ADJUSTMENT_FACTOR*(sizeAdjustmentFactor/2);
@@ -287,28 +289,23 @@ public class MarketMaker extends Algorithm {
 						//Analyze current order book state
 						OrderBook orderbook = hl.getOrderBook(symbol);
 
-						//get some basic asset price trend information (ie increasing recently or decreasing recently)
-						//see if the 7 day vwap is higher or lower than 30 day vwap
-						double vwapDiff = symbolInfo.SevenDayStats.vwap-symbolInfo.ThirtyDayStats.vwap;
-						double vwapDiffPct = vwapDiff/((symbolInfo.SevenDayStats.vwap+symbolInfo.ThirtyDayStats.vwap)/2);
-						
-						double idealAssetValuePercentAdjustment = Math.signum(vwapDiffPct)*Math.min(Math.abs(vwapDiffPct),MAX_IDEAL_ASSET_VALUE_PERCENT_ADJUSTMENT);
-						/* adjust the ideal asset value percent based on the neutral value + the adjustment which depends
-						 * on the trend of the asset
-						 * If price has been increasing, we should buy more (ie adjust the percent up) since we can benefit from
-						 * price increase
-						 * If price has been falling, we should buy less (ie adjust the percent down) since we can get hurt by
-						 * the price drop
-						 */
-						double idealAssetValuePercent = NEUTRAL_IDEAL_ASSET_VALUE_PERCENT + idealAssetValuePercentAdjustment;
-						
-						
 						/* calculate the targe number of shares we want in our portfolio based on 
-						 * the percent value we want the asset be worth in our portfolio
+						 * liquidity of the stock measured by avgVolPerCycle based on 30 Day volume
 						 */
-						double totalPortfolioMktValue = portfolio.getTotalPortfolioMarketValue();
-						double valueOfAssetAtIdealPct = totalPortfolioMktValue*idealAssetValuePercent;
-						long targetNumUnits = (long) (valueOfAssetAtIdealPct/symbolInfo.OneDayStats.vwap);
+						double avgVolPerCycle = symbolInfo.ThirtyDayStats.vol/(30.0*CYCLES_PER_DAY);
+						long targetNumUnits = (long) Math.ceil(avgVolPerCycle*CYCLE_VOLUME_HOLDING_MULTIPLE);
+						
+						/*
+						 * risk check so that target number of units doesn't become too big part of the portfolio
+						 */
+						double estimatedTargetValue = symbolInfo.OneDayStats.vwap*targetNumUnits;
+						double portfolioMarketValue = portfolio.getTotalPortfolioMarketValue();
+						double targetValueLimit = portfolioMarketValue*MAX_PORTFOLIO_VALUE_PERCENT;
+						if(estimatedTargetValue>targetValueLimit){
+							long reducedTargetNumUnits = (long) Math.ceil(targetValueLimit/symbolInfo.OneDayStats.vwap);
+							System.out.format("Target Num Units: %d over value limit! Reducing to: %d %n",targetNumUnits,reducedTargetNumUnits);
+							targetNumUnits = reducedTargetNumUnits;
+						}
 						
 						//we want to achieve the target units in about 5 orders
 						//ceiling is used so the minDisplaySize is at least 1
@@ -337,12 +334,9 @@ public class MarketMaker extends Algorithm {
 						TreeSet<Order> sortedAsks = orderbook.getBestAsk();
 						TreeSet<Order> sortedBids = orderbook.getBestBid();
 						
-						
-						double assetValueToPortfolioRatio = curNumUnits*symbolInfo.lastPrice/totalPortfolioMktValue;
-						
 						//calculate adjustment factor based on deviation of asset value % from ideal
-						double bidSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.BID,assetValueToPortfolioRatio,idealAssetValuePercent);
-						double askSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.ASK,assetValueToPortfolioRatio,idealAssetValuePercent);
+						double bidSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.BID,curNumUnits,targetNumUnits);
+						double askSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.ASK,curNumUnits,targetNumUnits);
 						
 						double bestAskAdjustmentFactor = Math.max(askSizeAdjustmentFactor,0.01);
 						bestAskAdjustmentFactor=1/Math.pow(bestAskAdjustmentFactor,IDEAL_TIGHTENING_FACTOR);
@@ -418,10 +412,14 @@ public class MarketMaker extends Algorithm {
 								+" BidSizeAdjF: %.2f" 
 								+" BestBidAdjF: %.2f" 
 								+" AskSizeAdjF: %.2f"
-								+" BestAskAdjF: %.2f" 
-								+" IdealPctAdj: %.2f%n";
+								+" BestAskAdjF: %.2f"
+								+" TgtNumUnits: %d" 
+								+" EstTgtValue: %.2f"
+								+" TgtValueLimit: %.2f"
+								+"%n";
 						System.out.format(keyVars,symbol,pctSpread*100,pctSpreadMA[symIndex]*100,minDisplaySize,
-								bidSizeAdjustmentFactor,bestBidAdjustmentFactor,askSizeAdjustmentFactor,bestAskAdjustmentFactor,idealAssetValuePercentAdjustment);
+								bidSizeAdjustmentFactor,bestBidAdjustmentFactor,askSizeAdjustmentFactor,bestAskAdjustmentFactor,
+								targetNumUnits,estimatedTargetValue,targetValueLimit);
 						
 				}
 				//catch any exception that might arise record it and try again...

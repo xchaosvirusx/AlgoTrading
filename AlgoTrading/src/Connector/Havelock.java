@@ -323,7 +323,7 @@ public class Havelock implements Connector {
 		} else {
 			//not expecting this case
 			System.err.println("Creating order and order type is not BID or ASK!");
-			return order;
+			return null;
 		}
 		
 		double price = order.price; 
@@ -342,7 +342,7 @@ public class Havelock implements Connector {
 			var.put("action","sell");
 		} else {
 			//not expecting so return null
-			return order;
+			return null;
 		}
 		
 		String result = apiCall(CMD.ORDERCREATE,var);

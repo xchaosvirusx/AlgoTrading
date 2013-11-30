@@ -31,6 +31,8 @@ public class MarketMaker extends Algorithm {
 	
 	public final static double MAX_SIZE_ADJUSTMENT_FACTOR = 2;
 	
+	public final static double NUM_STEP_TO_TARGET = 10;
+	
 	public final static int MIN_PROFIT_TO_FEES_MULTIPLE = 10;
 	
 	public final static double MAX_PORTFOLIO_VALUE_PERCENT = 0.1;
@@ -73,7 +75,7 @@ public class MarketMaker extends Algorithm {
 	 * The second best eligible order is the best eligible order
 	 * not counting the best eligible order
 	 */
-	private static Order[] findBestEligibleOrders(TreeSet<Order> orders, double threshold, Orders myOrders, Order moonShot){
+	private static Order[] findBestEligibleOrders(TreeSet<Order> orders, double threshold, Order myOrder){
 		
 		int volumeSoFar = 0;
 		Order[] result = new Order[2];
@@ -84,8 +86,7 @@ public class MarketMaker extends Algorithm {
 		Order secondBestOrder = new Order(null, "", null, null, -1, 0, 0);
 		
 		//find best eligible order
-		while(iter.hasNext()&&volumeSoFar<=threshold
-				&& (myOrders.getOrder(bestOrder.id)==null || bestOrder.id == moonShot.id)){
+		while(iter.hasNext()&&volumeSoFar<=threshold && (!bestOrder.id.equals(myOrder.id))){
 			bestOrder = iter.next();
 			volumeSoFar += bestOrder.quantity;
 		}
@@ -94,8 +95,7 @@ public class MarketMaker extends Algorithm {
 		volumeSoFar -= bestOrder.quantity;
 		
 		//find second best eligible order
-		while(iter.hasNext()&&volumeSoFar<=threshold
-				&& (myOrders.getOrder(secondBestOrder.id)==null || secondBestOrder.id == moonShot.id)){
+		while(iter.hasNext()&&volumeSoFar<=threshold && (!secondBestOrder.id.equals(myOrder.id))){
 			secondBestOrder = iter.next();
 			volumeSoFar += secondBestOrder.quantity;
 		}
@@ -154,7 +154,7 @@ public class MarketMaker extends Algorithm {
 		return calculateAbsoluteSpread(bid, ask)/calculateMidPrice(bid,ask);
 	}
 	
-	private static Order sendOrder(Order newOrder, Orders myOrders, Order bestOrder, Order nextBestOrder, long curUnits, double avaliableBalance, Havelock hl){
+	private static Order sendOrder(Order newOrder, Order myOrder, Order bestOrder, Order nextBestOrder, long curUnits, double avaliableBalance, double midPrice, Havelock hl){
 		TYPE side = newOrder.type;
 		String symbol = newOrder.symbol;
 		/*
@@ -162,11 +162,11 @@ public class MarketMaker extends Algorithm {
 		 * -should not be more than 1 tick more in price than the next best order 
 		 * -the quantity on it should not be below MIN_DISPLAY_SIZE
 		 */
-		if(myOrders.getOrder(bestOrder.id)!=null){
+		if(bestOrder.id.equals(myOrder.id)){
 			//replace the bestOrder from order book from the one we have
 			//this is useful since bestOrder from order book doesn't have filled info
 			//but our orders do..this step is necessary
-			bestOrder = myOrders.getOrder(bestOrder.id);
+			bestOrder = myOrder;
 			//look at the second lowest ask, see if we are 1 tick apart, if not cancel order
 			double diff = Math.abs(bestOrder.price - nextBestOrder.price);
 			if(diff > 2*Havelock.MIN_TICK){
@@ -200,7 +200,7 @@ public class MarketMaker extends Algorithm {
 		double price = -1;
 		boolean valid = false;
 		//check if bestOrder is mine if not, put an order to the top
-		if(myOrders.getOrder(bestOrder.id)==null){
+		if(!bestOrder.id.equals(myOrder.id)){
 			if(side == TYPE.ASK){
 				price = bestOrder.price-Havelock.MIN_TICK;
 				if(newOrder.quantity>0 && price>0){
@@ -226,16 +226,36 @@ public class MarketMaker extends Algorithm {
 			}
 			
 			newOrder.price = price;
-			if(valid){
-				newOrder = hl.createOrder(newOrder);
-				
-				if(!newOrder.id.equals("")){
-					System.out.println("Creating new Order! " + newOrder.toString());
-				} else {
-					System.err.println("Failed to create new Order! " + newOrder.toString());
+			/*
+			 * Sanity check
+			 * Bid order price should not be higher than midPrice 
+			 * Ask order price should not be lower than midPrice
+			 */
+			if(side == TYPE.BID){
+				if((newOrder.price - midPrice)> 2*Havelock.MIN_TICK){
+					System.out.println("Bid Order Trying to cross spread!");
+					newOrder = null;
+				}
+			} else if(side == TYPE.ASK){
+				if((midPrice - newOrder.price)>2*Havelock.MIN_TICK){
+					System.out.println("Ask Order Trying to cross spread!");
+					newOrder = null;
 				}
 			}
 			
+			if(valid && newOrder != null){
+				
+				newOrder = hl.createOrder(newOrder);
+				
+				if(newOrder!=null){
+					System.out.println("Creating new Order! " + newOrder.toString());
+				} else {
+					System.err.println("Failed to create new Order! Side: " + side );
+				}
+			}
+			
+		} else {
+			newOrder = null;
 		}
 		
 		return newOrder;
@@ -287,6 +307,12 @@ public class MarketMaker extends Algorithm {
 		
 		return MAX_SIZE_ADJUSTMENT_FACTOR*(sizeAdjustmentFactor/2);
 	}
+	
+	private static void initializeTrackingOrderArray(Order[] orders){
+		for(int i = 0; i <orders.length; i++){
+			orders[i] = new Order(null, "init", "", "", -1, 0, 0);
+		}
+	}
 
 	/**
 	 * @param args
@@ -315,12 +341,23 @@ public class MarketMaker extends Algorithm {
 		int[] askSizeRandomComponents = new int[numSymbol];
 		double[] pctSpreadMA = new double[numSymbol];
 		Order[] moonShotBids = new Order[numSymbol];
+		Order[] moonShotAsks = new Order[numSymbol];
+		Order[] mktMakingBids = new Order[numSymbol];
+		Order[] mktMakingAsks = new Order[numSymbol];
+		
+		initializeTrackingOrderArray(moonShotBids);
+		initializeTrackingOrderArray(moonShotAsks);
+		initializeTrackingOrderArray(mktMakingBids);
+		initializeTrackingOrderArray(mktMakingAsks);
 		
 		//Infinite loop
 		while(true){
 			date = new Date();
 			System.out.println(new Timestamp(date.getTime()));
 			try{
+				//only need this once per cycle
+				Portfolio portfolio = hl.getPortfolio();
+				
 				for(int symIndex = 0; symIndex < symbols.size(); symIndex++){
 						String symbol = symbols.get(symIndex);
 						System.out.println("******************** " + symbol + " ********************");
@@ -330,12 +367,11 @@ public class MarketMaker extends Algorithm {
 						//get symbol information, include some volume price stats
 						SymbolInfo symbolInfo = hl.getSymbolInfo(symbol);
 						//get portfolio information
-						Portfolio portfolio = hl.getPortfolio();
 						//get open orders
 						Orders orders = hl.getOrders(symbol);
 						//Analyze current order book state
 						OrderBook orderbook = hl.getOrderBook(symbol);
-
+						
 						/* calculate the targe number of shares we want in our portfolio based on 
 						 * liquidity of the stock measured by avgVolPerCycle based on 30 Day volume
 						 */
@@ -351,6 +387,7 @@ public class MarketMaker extends Algorithm {
 						double portfolioMarketValue = portfolio.getTotalPortfolioMarketValue();
 						double targetValueUpperLimit = portfolioMarketValue*MAX_PORTFOLIO_VALUE_PERCENT;
 						double targetValueLowerLimit = portfolioMarketValue*MIN_PORTFOLIO_VALUE_PERCENT;
+						
 						if(estimatedTargetValue>targetValueUpperLimit){
 							long reducedTargetNumUnits = (long) Math.ceil(targetValueUpperLimit/symbolInfo.OneDayStats.vwap);
 							System.out.format("Target Num Units: %d over value limit! Reducing to: %d %n",targetNumUnits,reducedTargetNumUnits);
@@ -361,9 +398,9 @@ public class MarketMaker extends Algorithm {
 							targetNumUnits = increasedTargetNumUnits;
 						}
 						
-						//we want to achieve the target units in about 5 orders
-						//ceiling is used so the minDisplaySize is at least 1
-						long minDisplaySize = (long) Math.max(targetNumUnits/10.0,1);
+						//we want to achieve the target units in about NUM_STEP_TO_TARGET orders
+						//minDisplaySize should be at least 1
+						long minDisplaySize = (long) Math.max(targetNumUnits/NUM_STEP_TO_TARGET,1);
 						long displaySizeRange = minDisplaySize/5;
 						
 						//get the current number of units we have already
@@ -373,30 +410,13 @@ public class MarketMaker extends Algorithm {
 							curNumUnits = assetPosition.quantity;
 						}
 						
-						//reset the size random components if we cycled enough times
-						if(counter%RANDOM_RESET_IN_PAUSE_TIME_CYCLE == 0){
-							bidSizeRandomComponents[symIndex] = (int)(Math.random() * (displaySizeRange+1));
-							askSizeRandomComponents[symIndex] = (int)(Math.random() * (displaySizeRange+1));
-						}
-						
-						//set bid and ask size
-						long bidSize = minDisplaySize + bidSizeRandomComponents[symIndex];
-						long askSize = minDisplaySize + askSizeRandomComponents[symIndex];
-					
 					
 						//get sorted orderbook info
 						TreeSet<Order> sortedAsks = orderbook.getBestAsk();
 						TreeSet<Order> sortedBids = orderbook.getBestBid();
 						
-						//calculate adjustment factor based on deviation of asset value % from ideal
-						double bidSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.BID,curNumUnits,targetNumUnits);
-						double askSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.ASK,curNumUnits,targetNumUnits);
-						
-						double bestAskAdjustmentFactor = Math.max(askSizeAdjustmentFactor,0.01);
-						bestAskAdjustmentFactor=1/Math.pow(bestAskAdjustmentFactor,IDEAL_TIGHTENING_FACTOR);
-						
-						double bestBidAdjustmentFactor = Math.max(bidSizeAdjustmentFactor,0.01);
-						bestBidAdjustmentFactor=1/Math.pow(bestBidAdjustmentFactor,IDEAL_TIGHTENING_FACTOR);
+						double midPrice = calculateMidPrice(sortedBids.first(),sortedAsks.first());
+					
 						
 						/*
 						 * Moon Shot Orders
@@ -406,46 +426,73 @@ public class MarketMaker extends Algorithm {
 						 * used when other people dump their stock quickly and price drop by a lot
 						 * or people bulk buy and price increases by a lot
 						 */
-						//Setup moon shot order
-						long moonShotBidSize = 0;
-						if(curNumUnits<2*targetNumUnits) moonShotBidSize = targetNumUnits/2;
-						Order firstMoonShotBid = new Order(TYPE.BID, "", "", symbol, -1, moonShotBidSize, 0);
-						//bid side
-						double firstMoonShotBidPriceThreshold = symbolInfo.OneDayStats.vwap*(1-2*MOON_SHOT_ORDER_PERCENT);
-						//Moon Shot bid orders should only be done if the threshold is actually lower than last price...
-						while(firstMoonShotBidPriceThreshold>symbolInfo.lastPrice){
-							firstMoonShotBidPriceThreshold = firstMoonShotBidPriceThreshold*(1-MOON_SHOT_ORDER_PERCENT);
-						}
-
-						Order[] firstMoonShotBidRef = findBestMoonShotOrders(sortedBids,firstMoonShotBidPriceThreshold);
-						moonShotBids[symIndex] = firstMoonShotBidRef[0];
 						
-						firstMoonShotBid = sendOrder(firstMoonShotBid , orders, firstMoonShotBidRef[0], firstMoonShotBidRef[1], curNumUnits, portfolio.balanceAvailable,hl);
-						if(!firstMoonShotBid.id.equals("")){
-							moonShotBids[symIndex] = firstMoonShotBid;
-						}
+						System.out.println("~~Moon Shot Orders~~");
+						/*
+						 * Moon Shot Bids
+						 */
+						// Only do moon shot bid if we don't have too much inventory
+						if(curNumUnits<2*targetNumUnits){
+							//Setup moon shot order
+							long moonShotBidSize = targetNumUnits/2;
+							Order moonShotBid = new Order(TYPE.BID, "", "", symbol, -1, moonShotBidSize, 0);
+							//bid side
+							double moonShotBidPriceThreshold = symbolInfo.OneDayStats.vwap*(1-2*MOON_SHOT_ORDER_PERCENT);
+							//Moon Shot bid orders should only be done if the threshold is actually lower than mid price...
+							while(moonShotBidPriceThreshold>midPrice){
+								moonShotBidPriceThreshold = moonShotBidPriceThreshold*(1-MOON_SHOT_ORDER_PERCENT);
+							}
+		
+							Order[] moonShotBidRef = findBestMoonShotOrders(sortedBids,moonShotBidPriceThreshold);
 
+							moonShotBid = sendOrder(moonShotBid , moonShotBids[symIndex], moonShotBidRef[0], moonShotBidRef[1], curNumUnits, portfolio.balanceAvailable, midPrice,hl);
+							if(moonShotBid != null){
+								moonShotBids[symIndex] = moonShotBid;
+							}
+						}
 						
+						System.out.println("~~Market Making~~");
 						/*
 						 * Market Making orders
 						 */
+						//reset the size random components if we cycled enough times
+						if(counter%RANDOM_RESET_IN_PAUSE_TIME_CYCLE == 0){
+							bidSizeRandomComponents[symIndex] = (int)(Math.random() * (displaySizeRange+1));
+							askSizeRandomComponents[symIndex] = (int)(Math.random() * (displaySizeRange+1));
+						}
 						
-						//best ask in position 0 and next best is position 1
-						Order[] bestAsks= findBestEligibleOrders(sortedAsks, minDisplaySize*bestAskAdjustmentFactor, orders, moonShotBids[symIndex]);
-						//best bid in position 0 and next best is position 1
-						Order[] bestBids = findBestEligibleOrders(sortedBids, minDisplaySize*bestBidAdjustmentFactor, orders, moonShotBids[symIndex]);
+						//set bid and ask size
+						long bidSize = minDisplaySize + bidSizeRandomComponents[symIndex];
+						long askSize = minDisplaySize + askSizeRandomComponents[symIndex];
 						
-						/* Invert the size adjustment factor
-						 * For example in bid case, if bidSizeAdjustmentFactor is large, we want the threshold to be lower
+						//calculate adjustment factor based on deviation of asset value % from ideal
+						double bidSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.BID,curNumUnits,targetNumUnits);
+						double askSizeAdjustmentFactor = calculateSizeAdjustmentFactor(TYPE.ASK,curNumUnits,targetNumUnits);
+
+						 //get the best bid and ask orders as reference orders (ie orders to peg to)
+						/* Invert the size adjustment factor with IDEAL_TIGHTENING_FACTOR 
+						 * For example in bid case, if bidSizeAdjustmentFactor is > 1, we want the threshold to be lower
 						 * since we want to buy earlier
-						 * Similarly if the bidSizeAdjustmentFactor is small, we want a higher threshold since we don't want
+						 * Similarly if the bidSizeAdjustmentFactor is < 1, we want a higher threshold since we don't want
 						 * to buy that badly so we can afford to wait
 						 */
-						double bidThreshold = (MAX_SIZE_ADJUSTMENT_FACTOR-bidSizeAdjustmentFactor)*minDisplaySize;
-						double askThreshold = (MAX_SIZE_ADJUSTMENT_FACTOR-askSizeAdjustmentFactor)*minDisplaySize;
+						double bestAskAdjustmentFactor = Math.max(askSizeAdjustmentFactor,0.01);
+						bestAskAdjustmentFactor=1/Math.pow(bestAskAdjustmentFactor,IDEAL_TIGHTENING_FACTOR);
+						
+						double bestBidAdjustmentFactor = Math.max(bidSizeAdjustmentFactor,0.01);
+						bestBidAdjustmentFactor=1/Math.pow(bestBidAdjustmentFactor,IDEAL_TIGHTENING_FACTOR);
+						
+						//best bid in position 0 and next best is position 1
+						Order[] bestBids = findBestEligibleOrders(sortedBids, minDisplaySize*bestBidAdjustmentFactor, mktMakingBids[symIndex]);
+						//best ask in position 0 and next best is position 1
+						Order[] bestAsks= findBestEligibleOrders(sortedAsks, minDisplaySize*bestAskAdjustmentFactor, mktMakingAsks[symIndex]);
+						
+						//try to get a reasonable estimate of obtainable spread
+						double spreadBidThreshold = (MAX_SIZE_ADJUSTMENT_FACTOR-bidSizeAdjustmentFactor)*minDisplaySize;
+						double spreadAskThreshold = (MAX_SIZE_ADJUSTMENT_FACTOR-askSizeAdjustmentFactor)*minDisplaySize;
 						//for calculating spread only
-						Order[] spreadAsks = findBestEligibleOrders(sortedAsks, askThreshold, orders, moonShotBids[symIndex]);
-						Order[] spreadBids = findBestEligibleOrders(sortedBids, bidThreshold, orders, moonShotBids[symIndex]);
+						Order[] spreadBids = findBestEligibleOrders(sortedBids, spreadBidThreshold, mktMakingBids[symIndex]);
+						Order[] spreadAsks = findBestEligibleOrders(sortedAsks, spreadAskThreshold, mktMakingAsks[symIndex]);
 			
 						double pctSpread = calculatePercentSpread(spreadBids[0],spreadAsks[0]);
 						
@@ -459,8 +506,8 @@ public class MarketMaker extends Algorithm {
 						/* 
 						 * adjust the sizes
 						 */
-						askSize = (long) Math.ceil(askSize*askSizeAdjustmentFactor);
 						bidSize = (long) Math.ceil(bidSize*bidSizeAdjustmentFactor);
+						askSize = (long) Math.ceil(askSize*askSizeAdjustmentFactor);
 						
 						Order newBid = new Order(TYPE.BID, "", "", symbol, -1, bidSize, 0);
 						Order newAsk = new Order(TYPE.ASK, "", "", symbol, -1, askSize, 0);
@@ -469,35 +516,49 @@ public class MarketMaker extends Algorithm {
 						//profit check and spread drop check
 						if(pctSpread>MIN_PROFIT_TO_FEES_MULTIPLE*totalFees && pctSpread>pctSpreadMA[symIndex]*SPREAD_DROP_THRESHOLD){
 							
-							//ask side
-							newAsk = sendOrder(newAsk, orders, bestAsks[0], bestAsks[1], curNumUnits, portfolio.balanceAvailable,hl);
 							//bid side
-							newBid = sendOrder(newBid, orders, bestBids[0], bestBids[1], curNumUnits, portfolio.balanceAvailable,hl);
+							newBid = sendOrder(newBid, mktMakingBids[symIndex], bestBids[0], bestBids[1], curNumUnits, portfolio.balanceAvailable,midPrice, hl);
+							//update to keep track of the orders
+							if(newBid != null){
+								mktMakingBids[symIndex] = newBid;
+							}
+							
+							//ask side
+							newAsk = sendOrder(newAsk, mktMakingAsks[symIndex], bestAsks[0], bestAsks[1], curNumUnits, portfolio.balanceAvailable,midPrice, hl);
+							//update to keep track of the orders
+							if(newAsk != null){
+								mktMakingAsks[symIndex] = newAsk;
+							}
 							
 						}
 						
-						
+						System.out.println("~~Cleaning Up~~");
 						//get the status of my orders currently
 						orders = hl.getOrders(symbol);
 						
-						//clean up ask orders
-						Set<Order> toKeepAsks = new HashSet<Order>();
-						toKeepAsks.add(orders.getOrder(bestAsks[0].id));
-						toKeepAsks.add(orders.getOrder(newAsk.id));
-						/*
-						toKeepAsks.add(orders.getOrder(firstMoonShotAsk.id));
-						toKeepAsks.add(orders.getOrder(secondMoonShotAsk.id));
-						*/
-						cleanUpOrders(TYPE.ASK, orders, toKeepAsks, hl);
-						
 						//clean up bid orders
 						Set<Order> toKeepBids = new HashSet<Order>();
-						toKeepBids.add(orders.getOrder(bestBids[0].id));
-						toKeepBids.add(orders.getOrder(newBid.id));
-						toKeepBids.add(orders.getOrder(moonShotBids[symIndex].id));
-						toKeepBids.add(orders.getOrder(firstMoonShotBidRef[0].id));
-						//toKeepBids.add(orders.getOrder(secondMoonShotBid.id));
+						// get full details on the market making bid order we are keeping track of
+						if(orders.getOrder(mktMakingBids[symIndex].id)!= null){
+							mktMakingBids[symIndex] = orders.getOrder(mktMakingBids[symIndex].id);
+						}
+						toKeepBids.add(mktMakingBids[symIndex]);
+						// get full details on the moon shot bid order we are keeping track of
+						if(orders.getOrder(moonShotBids[symIndex].id)!= null){
+							moonShotBids[symIndex] = orders.getOrder(moonShotBids[symIndex].id);
+						}
+						toKeepBids.add(moonShotBids[symIndex]);
 						cleanUpOrders(TYPE.BID, orders, toKeepBids, hl);	
+						
+						//clean up ask orders
+						Set<Order> toKeepAsks = new HashSet<Order>();
+						// get full details on the market making ask order we are keeping track of
+						if(orders.getOrder(mktMakingAsks[symIndex].id)!= null){
+							mktMakingAsks[symIndex] = orders.getOrder(mktMakingAsks[symIndex].id);
+						}
+						toKeepAsks.add(orders.getOrder(mktMakingAsks[symIndex].id));
+
+						cleanUpOrders(TYPE.ASK, orders, toKeepAsks, hl);
 						
 						String keyVars =  "Symbol: %s"
 								+" PctSpread: %.2f"

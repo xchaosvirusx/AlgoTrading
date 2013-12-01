@@ -56,7 +56,9 @@ public class MarketMaker extends Algorithm {
 	 */
 	public final static long CYCLES_PER_DAY = 24*60*60*1000/PAUSE_TIME;
 	
-	public final static long CYCLE_VOLUME_HOLDING_MULTIPLE = 20;
+	public final static long BASE_VOLUME_HOLDING_MULTIPLE = 20;
+	
+	public final static long CYCLE_VOLUME_HOLDING_MULTIPLE = BASE_VOLUME_HOLDING_MULTIPLE*60*1000/PAUSE_TIME;
 	
 	/*
 	 * percentage discount(for bid)/premium (for ask) for the moonshot orders
@@ -169,7 +171,7 @@ public class MarketMaker extends Algorithm {
 			bestOrder = myOrder;
 			//look at the second lowest ask, see if we are 1 tick apart, if not cancel order
 			double diff = Math.abs(bestOrder.price - nextBestOrder.price);
-			if(diff > 2*Havelock.MIN_TICK){
+			if(diff > 1.5*Havelock.MIN_TICK){
 				if(side == TYPE.BID){
 					System.out.println("Symbol: "+symbol + " Bid more than 1 tick apart! Diff: " + diff);
 				} else if(side == TYPE.ASK){
@@ -252,6 +254,8 @@ public class MarketMaker extends Algorithm {
 				} else {
 					System.err.println("Failed to create new Order! Side: " + side );
 				}
+			} else {
+				newOrder = null;
 			}
 			
 		} else {
@@ -451,6 +455,30 @@ public class MarketMaker extends Algorithm {
 							}
 						}
 						
+						/*
+						 * Moon Shot Asks
+						 */
+						// Only do moon shot bid if we have excess units don't have too much inventory
+						long excessUnits = curNumUnits - 2*(minDisplaySize+displaySizeRange);
+						if(excessUnits > 0){
+							//Setup moon shot order
+							long moonShotAskSize = excessUnits/2;
+							Order moonShotAsk = new Order(TYPE.ASK, "", "", symbol, -1, moonShotAskSize, 0);
+							//ask side
+							double moonShotAskPriceThreshold = symbolInfo.OneDayStats.vwap*(1+2*MOON_SHOT_ORDER_PERCENT);
+							//Moon Shot ask orders should only be done if the threshold is actually higher than mid price...
+							while(moonShotAskPriceThreshold<midPrice){
+								moonShotAskPriceThreshold = moonShotAskPriceThreshold*(1+MOON_SHOT_ORDER_PERCENT);
+							}
+		
+							Order[] moonShotAskRef = findBestMoonShotOrders(sortedAsks,moonShotAskPriceThreshold);
+
+							moonShotAsk = sendOrder(moonShotAsk , moonShotAsks[symIndex], moonShotAskRef[0], moonShotAskRef[1], curNumUnits, portfolio.balanceAvailable, midPrice,hl);
+							if(moonShotAsk != null){
+								moonShotAsks[symIndex] = moonShotAsk;
+							}
+						}
+						
 						System.out.println("~~Market Making~~");
 						/*
 						 * Market Making orders
@@ -538,11 +566,13 @@ public class MarketMaker extends Algorithm {
 						
 						//clean up bid orders
 						Set<Order> toKeepBids = new HashSet<Order>();
+						
 						// get full details on the market making bid order we are keeping track of
 						if(orders.getOrder(mktMakingBids[symIndex].id)!= null){
 							mktMakingBids[symIndex] = orders.getOrder(mktMakingBids[symIndex].id);
 						}
 						toKeepBids.add(mktMakingBids[symIndex]);
+						
 						// get full details on the moon shot bid order we are keeping track of
 						if(orders.getOrder(moonShotBids[symIndex].id)!= null){
 							moonShotBids[symIndex] = orders.getOrder(moonShotBids[symIndex].id);
@@ -552,11 +582,18 @@ public class MarketMaker extends Algorithm {
 						
 						//clean up ask orders
 						Set<Order> toKeepAsks = new HashSet<Order>();
+						
 						// get full details on the market making ask order we are keeping track of
 						if(orders.getOrder(mktMakingAsks[symIndex].id)!= null){
 							mktMakingAsks[symIndex] = orders.getOrder(mktMakingAsks[symIndex].id);
 						}
-						toKeepAsks.add(orders.getOrder(mktMakingAsks[symIndex].id));
+						toKeepAsks.add(mktMakingAsks[symIndex]);
+						
+						// get full details on the moon shot ask order we are keeping track of
+						if(orders.getOrder(moonShotAsks[symIndex].id)!= null){
+							moonShotAsks[symIndex] = orders.getOrder(moonShotAsks[symIndex].id);
+						}
+						toKeepAsks.add(moonShotAsks[symIndex]);
 
 						cleanUpOrders(TYPE.ASK, orders, toKeepAsks, hl);
 						

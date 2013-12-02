@@ -33,7 +33,7 @@ public class MarketMaker extends Algorithm {
 	
 	public final static double NUM_STEP_TO_TARGET = 9;
 	
-	public final static int BASE_PROFIT_TO_FEES_MULTIPLE = 10;
+	public final static int BASE_PROFIT_TO_FEES_MULTIPLE = 9;
 	
 	public final static double MAX_PORTFOLIO_VALUE_PERCENT = 0.09;
 	
@@ -360,6 +360,7 @@ public class MarketMaker extends Algorithm {
 		Order[] moonShotAsks = new Order[numSymbol];
 		Order[] mktMakingBids = new Order[numSymbol];
 		Order[] mktMakingAsks = new Order[numSymbol];
+		
 		initializeTrackingOrderArray(moonShotBids);
 		initializeTrackingOrderArray(moonShotAsks);
 		initializeTrackingOrderArray(mktMakingBids);
@@ -478,7 +479,7 @@ public class MarketMaker extends Algorithm {
 						//best bid in position 0 and next best is position 1
 						Order[] bestBids = findBestEligibleOrders(sortedBids, minDisplaySize*bestBidAdjustmentFactor, mktMakingBids[symIndex]);
 						//best ask in position 0 and next best is position 1
-						Order[] bestAsks= findBestEligibleOrders(sortedAsks, minDisplaySize*bestAskAdjustmentFactor, mktMakingAsks[symIndex]);
+						Order[] bestAsks = findBestEligibleOrders(sortedAsks, minDisplaySize*bestAskAdjustmentFactor, mktMakingAsks[symIndex]);
 						
 						//try to get a reasonable estimate of obtainable spread
 						double spreadBidThreshold = (MAX_SIZE_ADJUSTMENT_FACTOR-bidSizeAdjustmentFactor)*minDisplaySize;
@@ -508,6 +509,7 @@ public class MarketMaker extends Algorithm {
 						Order newBid = new Order(TYPE.BID, "", "", symbol, -1, bidSize, 0);
 						Order newAsk = new Order(TYPE.ASK, "", "", symbol, -1, askSize, 0);
 						
+						//calculate profit requirement
 						double weightedAvgValue = (symbolInfo.OneDayStats.vol*symbolInfo.OneDayStats.vwap
 								+symbolInfo.SevenDayStats.vol*symbolInfo.SevenDayStats.vwap
 								+symbolInfo.ThirtyDayStats.vol*symbolInfo.ThirtyDayStats.vwap)/3;
@@ -516,66 +518,65 @@ public class MarketMaker extends Algorithm {
 						
 						profitRequirement = Math.min(profitRequirement, MAX_PROFIT_REQUIREMENT);
 						
-						//market make only if spread is greater than MIN_PROFIT_TO_FEES_MULTIPLE times the total fees
-						//profit check and spread drop check
-						if(pctSpread>profitRequirement && pctSpread>pctSpreadMA[symIndex]*SPREAD_DROP_THRESHOLD){
+						//spread drop check
+						if(pctSpread>pctSpreadMA[symIndex]*SPREAD_DROP_THRESHOLD){
+							//put in passive order if profit requirement is not met
+							if(pctSpread<profitRequirement){
+								//place passive buy orders only if we want to buy(ie bid size adj factor > 1)
+								if(bidSizeAdjustmentFactor>1){
+									double pctThreshold = profitRequirement*(MAX_SIZE_ADJUSTMENT_FACTOR-bidSizeAdjustmentFactor);
+									double bidPriceThreshold = midPrice*(1-pctThreshold);
+									
+									bestBids = findBestOrdersWithBetterPrice(sortedBids,bidPriceThreshold);
+																		
+								} else {
+									//we are not sending a new bid order this cycle so newBid should be null
+									newBid = null;
+								}
+								
+								//place passive sell orders only if we want to sell(ie ask size adj factor > 1)
+								if(askSizeAdjustmentFactor>1){
+									double pctThreshold = profitRequirement*(MAX_SIZE_ADJUSTMENT_FACTOR-askSizeAdjustmentFactor);
+									double askPriceThreshold = midPrice*(1+pctThreshold);
+									
+									bestAsks = findBestOrdersWithBetterPrice(sortedAsks,askPriceThreshold);
+											
+								} else {
+									//we are not sending a new ask order this cycle so newAsk should be null
+									newAsk = null;
+								}
+							}
+							
 							//cool down if we have been placing too much orders
-							if(newBidMktOrderCounter[symIndex]<MAX_ORDER_PER_PERIOD){
+							if(newBidMktOrderCounter[symIndex]<MAX_ORDER_PER_PERIOD && (newBid!=null)){
 								//bid side
 								newBid = sendOrder(newBid, mktMakingBids[symIndex], bestBids[0], bestBids[1], curNumUnits, portfolio.balanceAvailable,midPrice, hl);
 							}
 							
 							//cool down if we have been placing too much orders	
-							if(newAskMktOrderCounter[symIndex]<MAX_ORDER_PER_PERIOD){
+							if(newAskMktOrderCounter[symIndex]<MAX_ORDER_PER_PERIOD && (newAsk!=null)){
 								//ask side
 								newAsk = sendOrder(newAsk, mktMakingAsks[symIndex], bestAsks[0], bestAsks[1], curNumUnits, portfolio.balanceAvailable,midPrice, hl);
 							}
 							
-						} else if(pctSpread<profitRequirement){
-							//place passive buy orders only if we want to buy(ie bid size adj factor > 1)
-							if(bidSizeAdjustmentFactor>1){
-								double pctThreshold = profitRequirement*(MAX_SIZE_ADJUSTMENT_FACTOR-bidSizeAdjustmentFactor);
-								double bidPriceThreshold = midPrice*(1-pctThreshold);
-								
-								Order[] passiveBidOrderRef = findBestOrdersWithBetterPrice(sortedBids,bidPriceThreshold);
-								
-								newBid = sendOrder(newBid, mktMakingBids[symIndex], passiveBidOrderRef[0], passiveBidOrderRef[1], curNumUnits, portfolio.balanceAvailable,midPrice, hl);
-								
-							} else {
-								//we didn't send a new bid order this cycle so newBid should be null
-								newBid = null;
+							//update to keep track of the orders
+							if(newBid != null){
+								mktMakingBids[symIndex] = newBid;
+								newBidMktOrderCounter[symIndex]++;
 							}
 							
-							//place passive sell orders only if we want to sell(ie ask size adj factor > 1)
-							if(askSizeAdjustmentFactor>1){
-								double pctThreshold = profitRequirement*(MAX_SIZE_ADJUSTMENT_FACTOR-askSizeAdjustmentFactor);
-								double askPriceThreshold = midPrice*(1+pctThreshold);
-								
-								Order[] passiveAskOrderRef = findBestOrdersWithBetterPrice(sortedAsks,askPriceThreshold);
-								
-								newAsk = sendOrder(newAsk, mktMakingAsks[symIndex], passiveAskOrderRef[0], passiveAskOrderRef[1], curNumUnits, portfolio.balanceAvailable,midPrice, hl);
-	
-							} else {
-								//we didn't send a new ask order this cycle so newAsk should be null
-								newAsk = null;
+							//update to keep track of the orders
+							if(newAsk != null){
+								mktMakingAsks[symIndex] = newAsk;
+								newAskMktOrderCounter[symIndex]++;
 							}
 						}
-						//update to keep track of the orders
-						if(newBid != null){
-							mktMakingBids[symIndex] = newBid;
-							newBidMktOrderCounter[symIndex]++;
-						}
 						
-						//update to keep track of the orders
-						if(newAsk != null){
-							mktMakingAsks[symIndex] = newAsk;
-							newAskMktOrderCounter[symIndex]++;
-						}
 						/*
 						 * Moon Shot Orders
 						 * 
 						 * Moon shot orders are orders that might take a long time to get filled
-						 * but can potentially provoide good return
+						 * but can potentially provide good return
 						 * used when other people dump their stock quickly and price drop by a lot
 						 * or people bulk buy and price increases by a lot
 						 */

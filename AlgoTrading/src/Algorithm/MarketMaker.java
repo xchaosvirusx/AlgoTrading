@@ -64,7 +64,7 @@ public class MarketMaker extends Algorithm {
 	 * percentage discount(for bid)/premium (for ask) for the moonshot orders
 	 * (moonshot means shoot the moon, unlikely to be filled)
 	 */
-	public final static double MOON_SHOT_ORDER_PERCENT = 0.1;
+	public final static double MOON_SHOT_ORDER_PERCENT = 0.2;
 	
 	public final static int MAX_ORDER_PER_PERIOD = 5;
 	
@@ -582,16 +582,18 @@ public class MarketMaker extends Algorithm {
 						 */
 						
 						System.out.println("~~Moon Shot Orders~~");
+						
+						double moonShotRefPrice = symbolInfo.SevenDayStats.vwap;
 						/*
 						 * Moon Shot Bids
 						 */
 						// Only do moon shot bid if we don't have too much inventory
 						if(curNumUnits<2*targetNumUnits){
 							//Setup moon shot order
-							long moonShotBidSize = targetNumUnits/2;
+							long moonShotBidSize = targetNumUnits/3;
 							Order moonShotBid = new Order(TYPE.BID, "", "", symbol, -1, moonShotBidSize, 0);
 							//bid side
-							double moonShotBidPriceThreshold = symbolInfo.OneDayStats.vwap*(1-2*MOON_SHOT_ORDER_PERCENT);
+							double moonShotBidPriceThreshold = moonShotRefPrice*(1-MOON_SHOT_ORDER_PERCENT);
 							//Moon Shot bid orders should only be done if the threshold is actually lower than mid price...
 							while(moonShotBidPriceThreshold>midPrice){
 								moonShotBidPriceThreshold = moonShotBidPriceThreshold*(1-MOON_SHOT_ORDER_PERCENT);
@@ -612,10 +614,10 @@ public class MarketMaker extends Algorithm {
 						long excessUnits = curNumUnits - 2*(minDisplaySize+displaySizeRange);
 						if(excessUnits > 0){
 							//Setup moon shot order
-							long moonShotAskSize = excessUnits/2;
+							long moonShotAskSize = excessUnits/3;
 							Order moonShotAsk = new Order(TYPE.ASK, "", "", symbol, -1, moonShotAskSize, 0);
 							//ask side
-							double moonShotAskPriceThreshold = symbolInfo.OneDayStats.vwap*(1+2*MOON_SHOT_ORDER_PERCENT);
+							double moonShotAskPriceThreshold = moonShotRefPrice*(1+MOON_SHOT_ORDER_PERCENT);
 							//Moon Shot ask orders should only be done if the threshold is actually higher than mid price...
 							while(moonShotAskPriceThreshold<midPrice){
 								moonShotAskPriceThreshold = moonShotAskPriceThreshold*(1+MOON_SHOT_ORDER_PERCENT);
@@ -680,10 +682,11 @@ public class MarketMaker extends Algorithm {
 								+" TgtValueLimit: %.2f"
 								+" NumNewBid: %d"
 								+" NumNewAsk: %d"
+								+" MSRefPrice: %.5f"
 								+"%n";
 						System.out.format(keyVars,symbol,profitRequirement*100,pctSpread*100,pctSpreadMA[symIndex]*100,minDisplaySize,
 								bidSizeAdjustmentFactor,bestBidAdjustmentFactor,askSizeAdjustmentFactor,bestAskAdjustmentFactor,
-								targetNumUnits,estimatedTargetValue,targetValueUpperLimit,newBidMktOrderCounter[symIndex],newAskMktOrderCounter[symIndex]);
+								targetNumUnits,estimatedTargetValue,targetValueUpperLimit,newBidMktOrderCounter[symIndex],newAskMktOrderCounter[symIndex],moonShotRefPrice);
 						
 				}
 				//catch any exception that might arise record it and try again...

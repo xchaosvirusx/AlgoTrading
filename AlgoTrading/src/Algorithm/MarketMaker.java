@@ -31,17 +31,17 @@ public class MarketMaker extends Algorithm {
 	
 	public final static double MAX_SIZE_ADJUSTMENT_FACTOR = 2;
 	
-	public final static double NUM_STEP_TO_TARGET = 10;
+	public final static double NUM_STEP_TO_TARGET = 9;
 	
-	public final static int MIN_PROFIT_TO_FEES_MULTIPLE = 10;
+	public final static int BASE_PROFIT_TO_FEES_MULTIPLE = 10;
 	
-	public final static double MAX_PORTFOLIO_VALUE_PERCENT = 0.1;
+	public final static double MAX_PORTFOLIO_VALUE_PERCENT = 0.09;
 	
-	public final static double MIN_PORTFOLIO_VALUE_PERCENT = 0.01;
+	public final static double MIN_PORTFOLIO_VALUE_PERCENT = 0.009;
 	/*
 	 * How much the MA should decay by
 	 */
-	public final static double MA_DECAY_FACTOR = 0.01;
+	public final static double MA_DECAY_FACTOR = 0.05;
 	
 	public final static double SPREAD_DROP_THRESHOLD = 3.0/4;
 	/*
@@ -49,7 +49,7 @@ public class MarketMaker extends Algorithm {
 	 * the higher the power, the less likely our holding will deviate from ideal
 	 * value percent
 	 */
-	public final static int IDEAL_TIGHTENING_FACTOR = 7;
+	public final static int IDEAL_TIGHTENING_FACTOR = 9;
 	
 	/*
 	 * number of cycles per day, one cycle is how long we pause for
@@ -65,6 +65,12 @@ public class MarketMaker extends Algorithm {
 	 * (moonshot means shoot the moon, unlikely to be filled)
 	 */
 	public final static double MOON_SHOT_ORDER_PERCENT = 0.1;
+	
+	public final static int MAX_ORDER_PER_PERIOD = 5;
+	
+	public final static double PROFIT_REQ_ADJUSTMENT_NUMERATOR = 393;
+	
+	public final static double MAX_PROFIT_REQUIREMENT = 0.5;
 	
 	/*
 	 * Find the best eligible order we should peg to
@@ -318,6 +324,12 @@ public class MarketMaker extends Algorithm {
 		}
 	}
 
+	private static void resetCounter(int[] counter){
+		for(int i = 0; i <counter.length; i++){
+			counter[i] = 0;
+		}
+	}
+	
 	/**
 	 * @param args
 	 */
@@ -348,11 +360,17 @@ public class MarketMaker extends Algorithm {
 		Order[] moonShotAsks = new Order[numSymbol];
 		Order[] mktMakingBids = new Order[numSymbol];
 		Order[] mktMakingAsks = new Order[numSymbol];
-		
 		initializeTrackingOrderArray(moonShotBids);
 		initializeTrackingOrderArray(moonShotAsks);
 		initializeTrackingOrderArray(mktMakingBids);
 		initializeTrackingOrderArray(mktMakingAsks);
+		
+		
+		int[] newBidMktOrderCounter = new int[numSymbol];
+		int[] newAskMktOrderCounter = new int[numSymbol];
+		
+		resetCounter(newBidMktOrderCounter);
+		resetCounter(newAskMktOrderCounter);
 		
 		//Infinite loop
 		while(true){
@@ -422,71 +440,18 @@ public class MarketMaker extends Algorithm {
 						double midPrice = calculateMidPrice(sortedBids.first(),sortedAsks.first());
 					
 						
-						/*
-						 * Moon Shot Orders
-						 * 
-						 * Moon shot orders are orders that might take a long time to get filled
-						 * but can potentially provoide good return
-						 * used when other people dump their stock quickly and price drop by a lot
-						 * or people bulk buy and price increases by a lot
-						 */
-						
-						System.out.println("~~Moon Shot Orders~~");
-						/*
-						 * Moon Shot Bids
-						 */
-						// Only do moon shot bid if we don't have too much inventory
-						if(curNumUnits<2*targetNumUnits){
-							//Setup moon shot order
-							long moonShotBidSize = targetNumUnits/2;
-							Order moonShotBid = new Order(TYPE.BID, "", "", symbol, -1, moonShotBidSize, 0);
-							//bid side
-							double moonShotBidPriceThreshold = symbolInfo.OneDayStats.vwap*(1-2*MOON_SHOT_ORDER_PERCENT);
-							//Moon Shot bid orders should only be done if the threshold is actually lower than mid price...
-							while(moonShotBidPriceThreshold>midPrice){
-								moonShotBidPriceThreshold = moonShotBidPriceThreshold*(1-MOON_SHOT_ORDER_PERCENT);
-							}
-		
-							Order[] moonShotBidRef = findBestMoonShotOrders(sortedBids,moonShotBidPriceThreshold);
-
-							moonShotBid = sendOrder(moonShotBid , moonShotBids[symIndex], moonShotBidRef[0], moonShotBidRef[1], curNumUnits, portfolio.balanceAvailable, midPrice,hl);
-							if(moonShotBid != null){
-								moonShotBids[symIndex] = moonShotBid;
-							}
-						}
-						
-						/*
-						 * Moon Shot Asks
-						 */
-						// Only do moon shot bid if we have excess units don't have too much inventory
-						long excessUnits = curNumUnits - 2*(minDisplaySize+displaySizeRange);
-						if(excessUnits > 0){
-							//Setup moon shot order
-							long moonShotAskSize = excessUnits/2;
-							Order moonShotAsk = new Order(TYPE.ASK, "", "", symbol, -1, moonShotAskSize, 0);
-							//ask side
-							double moonShotAskPriceThreshold = symbolInfo.OneDayStats.vwap*(1+2*MOON_SHOT_ORDER_PERCENT);
-							//Moon Shot ask orders should only be done if the threshold is actually higher than mid price...
-							while(moonShotAskPriceThreshold<midPrice){
-								moonShotAskPriceThreshold = moonShotAskPriceThreshold*(1+MOON_SHOT_ORDER_PERCENT);
-							}
-		
-							Order[] moonShotAskRef = findBestMoonShotOrders(sortedAsks,moonShotAskPriceThreshold);
-
-							moonShotAsk = sendOrder(moonShotAsk , moonShotAsks[symIndex], moonShotAskRef[0], moonShotAskRef[1], curNumUnits, portfolio.balanceAvailable, midPrice,hl);
-							if(moonShotAsk != null){
-								moonShotAsks[symIndex] = moonShotAsk;
-							}
-						}
 						
 						System.out.println("~~Market Making~~");
 						/*
 						 * Market Making orders
 						 */
 						//reset the size random components if we cycled enough times
+						//also reset the order counter
 						if(counter%RANDOM_RESET_IN_PAUSE_TIME_CYCLE == 0){
 							bidSizeRandomComponents[symIndex] = (int)(Math.random() * (displaySizeRange+1));
 							askSizeRandomComponents[symIndex] = (int)(Math.random() * (displaySizeRange+1));
+							resetCounter(newBidMktOrderCounter);
+							resetCounter(newAskMktOrderCounter);
 						}
 						
 						//set bid and ask size
@@ -521,8 +486,11 @@ public class MarketMaker extends Algorithm {
 						//for calculating spread only
 						Order[] spreadBids = findBestEligibleOrders(sortedBids, spreadBidThreshold, mktMakingBids[symIndex]);
 						Order[] spreadAsks = findBestEligibleOrders(sortedAsks, spreadAskThreshold, mktMakingAsks[symIndex]);
-			
-						double pctSpread = calculatePercentSpread(spreadBids[0],spreadAsks[0]);
+						
+						double actualOrderPctSpread = calculatePercentSpread(bestBids[0],bestAsks[0]);
+						double obtainablePctSpread = calculatePercentSpread(spreadBids[0],spreadAsks[0]);
+						
+						double pctSpread = Math.min(actualOrderPctSpread, obtainablePctSpread);
 						
 						//calculate pctSpread MA
 						if(pctSpreadMA[symIndex]==0){
@@ -540,24 +508,96 @@ public class MarketMaker extends Algorithm {
 						Order newBid = new Order(TYPE.BID, "", "", symbol, -1, bidSize, 0);
 						Order newAsk = new Order(TYPE.ASK, "", "", symbol, -1, askSize, 0);
 						
+						double weightedAvgValue = (symbolInfo.OneDayStats.vol*symbolInfo.OneDayStats.vwap
+								+symbolInfo.SevenDayStats.vol*symbolInfo.SevenDayStats.vwap
+								+symbolInfo.ThirtyDayStats.vol*symbolInfo.ThirtyDayStats.vwap)/3;
+						
+						double profitRequirement = BASE_PROFIT_TO_FEES_MULTIPLE*totalFees; //PROFIT_REQ_ADJUSTMENT_NUMERATOR/weightedAvgValue;
+						
+						profitRequirement = Math.min(profitRequirement, MAX_PROFIT_REQUIREMENT);
+						
 						//market make only if spread is greater than MIN_PROFIT_TO_FEES_MULTIPLE times the total fees
 						//profit check and spread drop check
-						if(pctSpread>MIN_PROFIT_TO_FEES_MULTIPLE*totalFees && pctSpread>pctSpreadMA[symIndex]*SPREAD_DROP_THRESHOLD){
+						if(pctSpread>profitRequirement && pctSpread>pctSpreadMA[symIndex]*SPREAD_DROP_THRESHOLD){
+							//cool down if we have been placing too much orders
+							if(newBidMktOrderCounter[symIndex]<MAX_ORDER_PER_PERIOD){
+								//bid side
+								newBid = sendOrder(newBid, mktMakingBids[symIndex], bestBids[0], bestBids[1], curNumUnits, portfolio.balanceAvailable,midPrice, hl);
+								//update to keep track of the orders
+								if(newBid != null){
+									mktMakingBids[symIndex] = newBid;
+									newBidMktOrderCounter[symIndex]++;
+								}
+							}
 							
+							//cool down if we have been placing too much orders	
+							if(newAskMktOrderCounter[symIndex]<MAX_ORDER_PER_PERIOD){
+								//ask side
+								newAsk = sendOrder(newAsk, mktMakingAsks[symIndex], bestAsks[0], bestAsks[1], curNumUnits, portfolio.balanceAvailable,midPrice, hl);
+								//update to keep track of the orders
+								if(newAsk != null){
+									mktMakingAsks[symIndex] = newAsk;
+									newAskMktOrderCounter[symIndex]++;
+								}
+							}
+							
+						}
+						
+						/*
+						 * Moon Shot Orders
+						 * 
+						 * Moon shot orders are orders that might take a long time to get filled
+						 * but can potentially provoide good return
+						 * used when other people dump their stock quickly and price drop by a lot
+						 * or people bulk buy and price increases by a lot
+						 */
+						
+						System.out.println("~~Moon Shot Orders~~");
+						/*
+						 * Moon Shot Bids
+						 */
+						// Only do moon shot bid if we don't have too much inventory
+						if(curNumUnits<2*targetNumUnits){
+							//Setup moon shot order
+							long moonShotBidSize = targetNumUnits/2;
+							Order moonShotBid = new Order(TYPE.BID, "", "", symbol, -1, moonShotBidSize, 0);
 							//bid side
-							newBid = sendOrder(newBid, mktMakingBids[symIndex], bestBids[0], bestBids[1], curNumUnits, portfolio.balanceAvailable,midPrice, hl);
-							//update to keep track of the orders
-							if(newBid != null){
-								mktMakingBids[symIndex] = newBid;
+							double moonShotBidPriceThreshold = symbolInfo.OneDayStats.vwap*(1-2*MOON_SHOT_ORDER_PERCENT);
+							//Moon Shot bid orders should only be done if the threshold is actually lower than mid price...
+							while(moonShotBidPriceThreshold>midPrice){
+								moonShotBidPriceThreshold = moonShotBidPriceThreshold*(1-MOON_SHOT_ORDER_PERCENT);
 							}
 							
+							Order[] moonShotBidRef = findBestMoonShotOrders(sortedBids,moonShotBidPriceThreshold);
+							
+							moonShotBid = sendOrder(moonShotBid , moonShotBids[symIndex], moonShotBidRef[0], moonShotBidRef[1], curNumUnits, portfolio.balanceAvailable, midPrice,hl);
+							if(moonShotBid != null){
+								moonShotBids[symIndex] = moonShotBid;
+							}
+						}
+						
+						/*
+						 * Moon Shot Asks
+						 */
+						// Only do moon shot bid if we have excess units don't have too much inventory
+						long excessUnits = curNumUnits - 2*(minDisplaySize+displaySizeRange);
+						if(excessUnits > 0){
+							//Setup moon shot order
+							long moonShotAskSize = excessUnits/2;
+							Order moonShotAsk = new Order(TYPE.ASK, "", "", symbol, -1, moonShotAskSize, 0);
 							//ask side
-							newAsk = sendOrder(newAsk, mktMakingAsks[symIndex], bestAsks[0], bestAsks[1], curNumUnits, portfolio.balanceAvailable,midPrice, hl);
-							//update to keep track of the orders
-							if(newAsk != null){
-								mktMakingAsks[symIndex] = newAsk;
+							double moonShotAskPriceThreshold = symbolInfo.OneDayStats.vwap*(1+2*MOON_SHOT_ORDER_PERCENT);
+							//Moon Shot ask orders should only be done if the threshold is actually higher than mid price...
+							while(moonShotAskPriceThreshold<midPrice){
+								moonShotAskPriceThreshold = moonShotAskPriceThreshold*(1+MOON_SHOT_ORDER_PERCENT);
 							}
 							
+							Order[] moonShotAskRef = findBestMoonShotOrders(sortedAsks,moonShotAskPriceThreshold);
+							
+							moonShotAsk = sendOrder(moonShotAsk , moonShotAsks[symIndex], moonShotAskRef[0], moonShotAskRef[1], curNumUnits, portfolio.balanceAvailable, midPrice,hl);
+							if(moonShotAsk != null){
+								moonShotAsks[symIndex] = moonShotAsk;
+							}
 						}
 						
 						System.out.println("~~Cleaning Up~~");
@@ -598,6 +638,7 @@ public class MarketMaker extends Algorithm {
 						cleanUpOrders(TYPE.ASK, orders, toKeepAsks, hl);
 						
 						String keyVars =  "Symbol: %s"
+								+" ProfitReq: %.2f"
 								+" PctSpread: %.2f"
 								+" PctSpreadMA: %.2f"
 								+" MinSize: %d"
@@ -608,10 +649,12 @@ public class MarketMaker extends Algorithm {
 								+" TgtNumUnits: %d" 
 								+" EstTgtValue: %.2f"
 								+" TgtValueLimit: %.2f"
+								+" NumNewBid: %d"
+								+" NumNewAsk: %d"
 								+"%n";
-						System.out.format(keyVars,symbol,pctSpread*100,pctSpreadMA[symIndex]*100,minDisplaySize,
+						System.out.format(keyVars,symbol,profitRequirement*100,pctSpread*100,pctSpreadMA[symIndex]*100,minDisplaySize,
 								bidSizeAdjustmentFactor,bestBidAdjustmentFactor,askSizeAdjustmentFactor,bestAskAdjustmentFactor,
-								targetNumUnits,estimatedTargetValue,targetValueUpperLimit);
+								targetNumUnits,estimatedTargetValue,targetValueUpperLimit,newBidMktOrderCounter[symIndex],newAskMktOrderCounter[symIndex]);
 						
 				}
 				//catch any exception that might arise record it and try again...

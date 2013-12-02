@@ -115,7 +115,7 @@ public class MarketMaker extends Algorithm {
 	}
 	
 	
-	private static Order[] findBestMoonShotOrders(TreeSet<Order> orders, double threshold){
+	private static Order[] findBestOrdersWithBetterPrice(TreeSet<Order> orders, double price){
 	
 		Order[] result = new Order[2];
 		Iterator<Order> iter = orders.iterator();
@@ -128,9 +128,9 @@ public class MarketMaker extends Algorithm {
 		while(iter.hasNext()){
 			bestOrder = iter.next();
 			if(bestOrder.type == TYPE.BID){
-				if(bestOrder.price<threshold) break;
+				if(bestOrder.price<price) break;
 			} else if(bestOrder.type == TYPE.ASK){
-				if(bestOrder.price>threshold) break;
+				if(bestOrder.price>price) break;
 			}
 		}
 		
@@ -138,9 +138,9 @@ public class MarketMaker extends Algorithm {
 		while(iter.hasNext()){
 			secondBestOrder = iter.next();
 			if(secondBestOrder.type == TYPE.BID){
-				if(secondBestOrder.price<threshold) break;
+				if(secondBestOrder.price<price) break;
 			} else if(secondBestOrder.type == TYPE.ASK){
-				if(secondBestOrder.price>threshold) break;
+				if(secondBestOrder.price>price) break;
 			}
 		}
 		
@@ -512,7 +512,7 @@ public class MarketMaker extends Algorithm {
 								+symbolInfo.SevenDayStats.vol*symbolInfo.SevenDayStats.vwap
 								+symbolInfo.ThirtyDayStats.vol*symbolInfo.ThirtyDayStats.vwap)/3;
 						
-						double profitRequirement = BASE_PROFIT_TO_FEES_MULTIPLE*totalFees; //PROFIT_REQ_ADJUSTMENT_NUMERATOR/weightedAvgValue;
+						double profitRequirement = BASE_PROFIT_TO_FEES_MULTIPLE*totalFees*PROFIT_REQ_ADJUSTMENT_NUMERATOR/weightedAvgValue;
 						
 						profitRequirement = Math.min(profitRequirement, MAX_PROFIT_REQUIREMENT);
 						
@@ -523,26 +523,54 @@ public class MarketMaker extends Algorithm {
 							if(newBidMktOrderCounter[symIndex]<MAX_ORDER_PER_PERIOD){
 								//bid side
 								newBid = sendOrder(newBid, mktMakingBids[symIndex], bestBids[0], bestBids[1], curNumUnits, portfolio.balanceAvailable,midPrice, hl);
-								//update to keep track of the orders
-								if(newBid != null){
-									mktMakingBids[symIndex] = newBid;
-									newBidMktOrderCounter[symIndex]++;
-								}
 							}
 							
 							//cool down if we have been placing too much orders	
 							if(newAskMktOrderCounter[symIndex]<MAX_ORDER_PER_PERIOD){
 								//ask side
 								newAsk = sendOrder(newAsk, mktMakingAsks[symIndex], bestAsks[0], bestAsks[1], curNumUnits, portfolio.balanceAvailable,midPrice, hl);
-								//update to keep track of the orders
-								if(newAsk != null){
-									mktMakingAsks[symIndex] = newAsk;
-									newAskMktOrderCounter[symIndex]++;
-								}
 							}
 							
+						} else if(pctSpread<profitRequirement){
+							//place passive buy orders only if we want to buy(ie bid size adj factor > 1)
+							if(bidSizeAdjustmentFactor>1){
+								double pctThreshold = profitRequirement*(MAX_SIZE_ADJUSTMENT_FACTOR-bidSizeAdjustmentFactor);
+								double bidPriceThreshold = midPrice*(1-pctThreshold);
+								
+								Order[] passiveBidOrderRef = findBestOrdersWithBetterPrice(sortedBids,bidPriceThreshold);
+								
+								newBid = sendOrder(newBid, mktMakingBids[symIndex], passiveBidOrderRef[0], passiveBidOrderRef[1], curNumUnits, portfolio.balanceAvailable,midPrice, hl);
+								
+							} else {
+								//we didn't send a new bid order this cycle so newBid should be null
+								newBid = null;
+							}
+							
+							//place passive sell orders only if we want to sell(ie ask size adj factor > 1)
+							if(askSizeAdjustmentFactor>1){
+								double pctThreshold = profitRequirement*(MAX_SIZE_ADJUSTMENT_FACTOR-askSizeAdjustmentFactor);
+								double askPriceThreshold = midPrice*(1+pctThreshold);
+								
+								Order[] passiveAskOrderRef = findBestOrdersWithBetterPrice(sortedAsks,askPriceThreshold);
+								
+								newAsk = sendOrder(newAsk, mktMakingAsks[symIndex], passiveAskOrderRef[0], passiveAskOrderRef[1], curNumUnits, portfolio.balanceAvailable,midPrice, hl);
+	
+							} else {
+								//we didn't send a new ask order this cycle so newAsk should be null
+								newAsk = null;
+							}
+						}
+						//update to keep track of the orders
+						if(newBid != null){
+							mktMakingBids[symIndex] = newBid;
+							newBidMktOrderCounter[symIndex]++;
 						}
 						
+						//update to keep track of the orders
+						if(newAsk != null){
+							mktMakingAsks[symIndex] = newAsk;
+							newAskMktOrderCounter[symIndex]++;
+						}
 						/*
 						 * Moon Shot Orders
 						 * 
@@ -568,7 +596,7 @@ public class MarketMaker extends Algorithm {
 								moonShotBidPriceThreshold = moonShotBidPriceThreshold*(1-MOON_SHOT_ORDER_PERCENT);
 							}
 							
-							Order[] moonShotBidRef = findBestMoonShotOrders(sortedBids,moonShotBidPriceThreshold);
+							Order[] moonShotBidRef = findBestOrdersWithBetterPrice(sortedBids,moonShotBidPriceThreshold);
 							
 							moonShotBid = sendOrder(moonShotBid , moonShotBids[symIndex], moonShotBidRef[0], moonShotBidRef[1], curNumUnits, portfolio.balanceAvailable, midPrice,hl);
 							if(moonShotBid != null){
@@ -592,7 +620,7 @@ public class MarketMaker extends Algorithm {
 								moonShotAskPriceThreshold = moonShotAskPriceThreshold*(1+MOON_SHOT_ORDER_PERCENT);
 							}
 							
-							Order[] moonShotAskRef = findBestMoonShotOrders(sortedAsks,moonShotAskPriceThreshold);
+							Order[] moonShotAskRef = findBestOrdersWithBetterPrice(sortedAsks,moonShotAskPriceThreshold);
 							
 							moonShotAsk = sendOrder(moonShotAsk , moonShotAsks[symIndex], moonShotAskRef[0], moonShotAskRef[1], curNumUnits, portfolio.balanceAvailable, midPrice,hl);
 							if(moonShotAsk != null){

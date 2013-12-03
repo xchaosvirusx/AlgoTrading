@@ -33,7 +33,7 @@ public class MarketMaker extends Algorithm {
 	
 	public final static double NUM_STEP_TO_TARGET = 9;
 	
-	public final static int BASE_PROFIT_TO_FEES_MULTIPLE = 9;
+	public final static int BASE_PROFIT_TO_FEES_MULTIPLE = 7;
 	
 	public final static double MAX_PORTFOLIO_VALUE_PERCENT = 0.09;
 	
@@ -162,6 +162,10 @@ public class MarketMaker extends Algorithm {
 		return calculateAbsoluteSpread(bid, ask)/calculateMidPrice(bid,ask);
 	}
 	
+	public static boolean isValidOrder(Order order){
+		return (order != null)&&(!order.id.equals("")) ? true:false;
+	}
+	
 	private static Order sendOrder(Order newOrder, Order myOrder, Order bestOrder, Order nextBestOrder, long curUnits, double avaliableBalance, double midPrice, Havelock hl){
 		TYPE side = newOrder.type;
 		String symbol = newOrder.symbol;
@@ -255,7 +259,7 @@ public class MarketMaker extends Algorithm {
 				
 				newOrder = hl.createOrder(newOrder);
 				
-				if(newOrder!=null){
+				if(isValidOrder(newOrder)){
 					System.out.println("Creating new Order! " + newOrder.toString());
 				} else {
 					System.err.println("Failed to create new Order! Side: " + side );
@@ -439,6 +443,8 @@ public class MarketMaker extends Algorithm {
 						TreeSet<Order> sortedBids = orderbook.getBestBid();
 						
 						double midPrice = calculateMidPrice(sortedBids.first(),sortedAsks.first());
+						double topBidPrice = sortedBids.first().price;
+						double topAskPrice = sortedAsks.first().price;
 					
 						
 						
@@ -522,29 +528,17 @@ public class MarketMaker extends Algorithm {
 						if(pctSpread>pctSpreadMA[symIndex]*SPREAD_DROP_THRESHOLD){
 							//put in passive order if profit requirement is not met
 							if(pctSpread<profitRequirement){
-								//place passive buy orders only if we want to buy(ie bid size adj factor > 1)
-								if(bidSizeAdjustmentFactor>1){
-									double pctThreshold = profitRequirement*(MAX_SIZE_ADJUSTMENT_FACTOR-bidSizeAdjustmentFactor);
-									double bidPriceThreshold = midPrice*(1-pctThreshold);
-									
-									bestBids = findBestOrdersWithBetterPrice(sortedBids,bidPriceThreshold);
-																		
-								} else {
-									//we are not sending a new bid order this cycle so newBid should be null
-									newBid = null;
-								}
+								System.out.println("Putting in Passive Orders");
+								double bidPctThreshold = profitRequirement*(MAX_SIZE_ADJUSTMENT_FACTOR-bidSizeAdjustmentFactor);
+								double bidPriceThreshold = midPrice*(1-bidPctThreshold);
 								
-								//place passive sell orders only if we want to sell(ie ask size adj factor > 1)
-								if(askSizeAdjustmentFactor>1){
-									double pctThreshold = profitRequirement*(MAX_SIZE_ADJUSTMENT_FACTOR-askSizeAdjustmentFactor);
-									double askPriceThreshold = midPrice*(1+pctThreshold);
-									
-									bestAsks = findBestOrdersWithBetterPrice(sortedAsks,askPriceThreshold);
-											
-								} else {
-									//we are not sending a new ask order this cycle so newAsk should be null
-									newAsk = null;
-								}
+								bestBids = findBestOrdersWithBetterPrice(sortedBids,bidPriceThreshold);
+																	
+	
+								double askPctThreshold = profitRequirement*(MAX_SIZE_ADJUSTMENT_FACTOR-askSizeAdjustmentFactor);
+								double askPriceThreshold = midPrice*(1+askPctThreshold);
+								
+								bestAsks = findBestOrdersWithBetterPrice(sortedAsks,askPriceThreshold);
 							}
 							
 							//cool down if we have been placing too much orders
@@ -560,13 +554,13 @@ public class MarketMaker extends Algorithm {
 							}
 							
 							//update to keep track of the orders
-							if(newBid != null){
+							if(isValidOrder(newBid)){
 								mktMakingBids[symIndex] = newBid;
 								newBidMktOrderCounter[symIndex]++;
 							}
 							
 							//update to keep track of the orders
-							if(newAsk != null){
+							if(isValidOrder(newAsk)){
 								mktMakingAsks[symIndex] = newAsk;
 								newAskMktOrderCounter[symIndex]++;
 							}
@@ -588,21 +582,21 @@ public class MarketMaker extends Algorithm {
 						 * Moon Shot Bids
 						 */
 						// Only do moon shot bid if we don't have too much inventory
-						if(curNumUnits<2*targetNumUnits){
+						if(curNumUnits<4*targetNumUnits){
 							//Setup moon shot order
-							long moonShotBidSize = targetNumUnits/3;
+							long moonShotBidSize = targetNumUnits/2;
 							Order moonShotBid = new Order(TYPE.BID, "", "", symbol, -1, moonShotBidSize, 0);
 							//bid side
 							double moonShotBidPriceThreshold = moonShotRefPrice*(1-MOON_SHOT_ORDER_PERCENT);
-							//Moon Shot bid orders should only be done if the threshold is actually lower than mid price...
-							while(moonShotBidPriceThreshold>midPrice){
+							//Moon Shot bid orders should only be done if the threshold is actually lower than top bid price...
+							while(moonShotBidPriceThreshold>topBidPrice){
 								moonShotBidPriceThreshold = moonShotBidPriceThreshold*(1-MOON_SHOT_ORDER_PERCENT);
 							}
 							
 							Order[] moonShotBidRef = findBestOrdersWithBetterPrice(sortedBids,moonShotBidPriceThreshold);
 							
 							moonShotBid = sendOrder(moonShotBid , moonShotBids[symIndex], moonShotBidRef[0], moonShotBidRef[1], curNumUnits, portfolio.balanceAvailable, midPrice,hl);
-							if(moonShotBid != null){
+							if(isValidOrder(moonShotBid)){
 								moonShotBids[symIndex] = moonShotBid;
 							}
 						}
@@ -618,15 +612,15 @@ public class MarketMaker extends Algorithm {
 							Order moonShotAsk = new Order(TYPE.ASK, "", "", symbol, -1, moonShotAskSize, 0);
 							//ask side
 							double moonShotAskPriceThreshold = moonShotRefPrice*(1+MOON_SHOT_ORDER_PERCENT);
-							//Moon Shot ask orders should only be done if the threshold is actually higher than mid price...
-							while(moonShotAskPriceThreshold<midPrice){
+							//Moon Shot ask orders should only be done if the threshold is actually higher than top ask price...
+							while(moonShotAskPriceThreshold<topAskPrice){
 								moonShotAskPriceThreshold = moonShotAskPriceThreshold*(1+MOON_SHOT_ORDER_PERCENT);
 							}
 							
 							Order[] moonShotAskRef = findBestOrdersWithBetterPrice(sortedAsks,moonShotAskPriceThreshold);
 							
 							moonShotAsk = sendOrder(moonShotAsk , moonShotAsks[symIndex], moonShotAskRef[0], moonShotAskRef[1], curNumUnits, portfolio.balanceAvailable, midPrice,hl);
-							if(moonShotAsk != null){
+							if(isValidOrder(moonShotAsk)){
 								moonShotAsks[symIndex] = moonShotAsk;
 							}
 						}

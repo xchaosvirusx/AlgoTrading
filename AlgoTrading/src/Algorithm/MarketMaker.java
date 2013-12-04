@@ -33,7 +33,7 @@ public class MarketMaker extends Algorithm {
 	
 	public final static double NUM_STEP_TO_TARGET = 9;
 	
-	public final static int BASE_PROFIT_TO_FEES_MULTIPLE = 7;
+	public final static int BASE_PROFIT_TO_FEES_MULTIPLE = 10;
 	
 	public final static double MAX_PORTFOLIO_VALUE_PERCENT = 0.09;
 	
@@ -509,8 +509,8 @@ public class MarketMaker extends Algorithm {
 						/* 
 						 * adjust the sizes
 						 */
-						bidSize = (long) Math.ceil(bidSize*bidSizeAdjustmentFactor);
-						askSize = (long) Math.ceil(askSize*askSizeAdjustmentFactor);
+						bidSize = (long) Math.max(bidSize*bidSizeAdjustmentFactor,1);
+						askSize = (long) Math.max(askSize*askSizeAdjustmentFactor,1);
 						
 						Order newBid = new Order(TYPE.BID, "", "", symbol, -1, bidSize, 0);
 						Order newAsk = new Order(TYPE.ASK, "", "", symbol, -1, askSize, 0);
@@ -520,7 +520,7 @@ public class MarketMaker extends Algorithm {
 								+symbolInfo.SevenDayStats.vol*symbolInfo.SevenDayStats.vwap
 								+symbolInfo.ThirtyDayStats.vol*symbolInfo.ThirtyDayStats.vwap)/3;
 						
-						double profitRequirement = BASE_PROFIT_TO_FEES_MULTIPLE*totalFees*PROFIT_REQ_ADJUSTMENT_NUMERATOR/weightedAvgValue;
+						double profitRequirement = BASE_PROFIT_TO_FEES_MULTIPLE*totalFees;//PROFIT_REQ_ADJUSTMENT_NUMERATOR/weightedAvgValue;
 						
 						profitRequirement = Math.min(profitRequirement, MAX_PROFIT_REQUIREMENT);
 						

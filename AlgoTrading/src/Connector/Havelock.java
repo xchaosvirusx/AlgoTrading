@@ -43,7 +43,9 @@ public class Havelock implements Connector {
 	
 	public static final double MIN_TICK = 0.00000001;
 	
-	public static final int REQUEST_TIMEOUT_IN_SEC = 30;
+	public static final int CONNECTION_TIMEOUT_IN_SEC = 30;
+	
+	public static final int READ_TIMEOUT_IN_SEC = 30;
 	
 	/*All the possible Havelock API Commands*/
 	public enum CMD{
@@ -85,8 +87,10 @@ public class Havelock implements Connector {
 			connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded"); 
 			connection.setRequestProperty("charset", "utf-8");
 			//set timeout
-			connection.setConnectTimeout(REQUEST_TIMEOUT_IN_SEC*1000);
-			/*construct the POST variables*/
+			connection.setConnectTimeout(CONNECTION_TIMEOUT_IN_SEC*1000);
+			connection.setReadTimeout(READ_TIMEOUT_IN_SEC*1000);
+			
+			//construct the POST variables
 			String urlParameters = "";
 			urlParameters += "cmd=" + cmd + "&key=" + key;
 			for(String key : variables.keySet()){

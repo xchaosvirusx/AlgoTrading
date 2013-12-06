@@ -45,7 +45,7 @@ public class Havelock implements Connector {
 	
 	public static final int CONNECTION_TIMEOUT_IN_SEC = 30;
 	
-	public static final int READ_TIMEOUT_IN_SEC = 30;
+	public static final int READ_TIMEOUT_IN_SEC = 60;
 	
 	/*All the possible Havelock API Commands*/
 	public enum CMD{

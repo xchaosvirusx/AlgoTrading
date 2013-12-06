@@ -255,7 +255,7 @@ public class MarketMaker extends Algorithm {
 				}
 			}
 			
-			if(valid && newOrder != null){
+			if(valid && (newOrder != null) && (newOrder.quantity>0)){
 				
 				newOrder = hl.createOrder(newOrder);
 				
@@ -516,11 +516,8 @@ public class MarketMaker extends Algorithm {
 						Order newAsk = new Order(TYPE.ASK, "", "", symbol, -1, askSize, 0);
 						
 						//calculate profit requirement
-						double weightedAvgValue = (symbolInfo.OneDayStats.vol*symbolInfo.OneDayStats.vwap
-								+symbolInfo.SevenDayStats.vol*symbolInfo.SevenDayStats.vwap
-								+symbolInfo.ThirtyDayStats.vol*symbolInfo.ThirtyDayStats.vwap)/3;
 						
-						double profitRequirement = BASE_PROFIT_TO_FEES_MULTIPLE*totalFees;//PROFIT_REQ_ADJUSTMENT_NUMERATOR/weightedAvgValue;
+						double profitRequirement = BASE_PROFIT_TO_FEES_MULTIPLE*totalFees;
 						
 						profitRequirement = Math.min(profitRequirement, MAX_PROFIT_REQUIREMENT);
 						

@@ -1,9 +1,9 @@
-package Algorithm;
+package Testing;
 
 import Connector.Havelock;
 import DataStructure.*;
 
-public class SandBox {
+public class HavelockTest {
 
 	/**
 	 * @param args

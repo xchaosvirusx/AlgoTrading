@@ -69,7 +69,7 @@ public class MarketWatcher extends Algorithm {
 			symbols.add(args[i]);
 		}
 		
-		Havelock hl = new Havelock();
+		Havelock hl = new Havelock("test");
 		
 		String pwd = System.getProperty("user.dir");
 		
@@ -148,7 +148,7 @@ public class MarketWatcher extends Algorithm {
 			}		
 			
 			try {
-				Thread.sleep(MarketMaker.PAUSE_TIME);
+				Thread.sleep(60*1000);
 			} catch (InterruptedException e) {
 				e.printStackTrace();
 			}

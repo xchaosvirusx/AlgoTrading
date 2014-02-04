@@ -23,7 +23,7 @@ public class Havelock implements Connector {
 	private String url="https://www.havelockinvestments.com/api/index.php";
 	
 	/*Havelock API Key Nov 13, 2013*/
-	private String key="TyKKZJPude23x59na273h4MstyPQc2txr48GDM3gttZfnZKFSG83BLjvAyBdrvSX";
+	private String key="";
 	
 	/*Http Connection*/
 	HttpsURLConnection connection = null;
@@ -70,6 +70,10 @@ public class Havelock implements Connector {
 	    public String toString() {
 	        return text;
 	    }
+	}
+	
+	public Havelock(String key){
+		this.key = key;
 	}
 	
 	//main method to interact with the Havelock API

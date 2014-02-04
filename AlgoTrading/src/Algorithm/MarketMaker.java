@@ -1,10 +1,13 @@
 package Algorithm;
 
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.sql.Timestamp;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -14,63 +17,89 @@ import DataStructure.Order.TYPE;
 
 import java.util.ArrayList;
 
+import Utilities.AlgoConfig;
+
 public class MarketMaker extends Algorithm {
 	/*
 	 * how long to pause before checking the orderbook again
 	 * set to 60 SEC
 	 */
-	public final static long PAUSE_TIME = 60*1000;
+	private static long pauseTime = 60*1000;
+	public final static String PAUSE_TIME = "PAUSE_TIME";
 	
 	/* 
 	 * how long before reseting the random component of bid ask sizes
 	 * set to 10 MIN
 	 */
-	public final static long RANDOM_RESET_TIME = 10*60*1000;
+	private static long randomResetTime = 10*60*1000;
+	public final static String RANDOM_RESET_TIME = "RANDOM_RESET_TIME";
 	
-	public final static long RANDOM_RESET_IN_PAUSE_TIME_CYCLE = RANDOM_RESET_TIME/PAUSE_TIME;
+	private static long randomResetInPauseTimeCycle = randomResetTime/pauseTime;
 	
-	public final static double MAX_SIZE_ADJUSTMENT_FACTOR = 2;
+	private static double maxSizeAdjustmentFactor = 2;
+	public final static String MAX_SIZE_ADJUSTMENT_FACTOR = "MAX_SIZE_ADJUSTMENT_FACTOR";
 	
-	public final static double NUM_STEP_TO_TARGET = 9;
+	private static double numStepToTarget = 9;
+	public final static String NUM_STEP_TO_TARGET = "NUM_STEP_TO_TARGET";
 	
-	public final static int BASE_PROFIT_TO_FEES_MULTIPLE = 10;
+	private static int baseProfitToFeesMutiple = 10;
+	public final static String BASE_PROFIT_TO_FEES_MULTIPLE = "BASE_PROFIT_TO_FEES_MULTIPLE";
 	
-	public final static double MAX_PORTFOLIO_VALUE_PERCENT = 0.09;
+	private static double maxPortfolioValuePercent = 0.09;
+	public final static String MAX_PORTFOLIO_VALUE_PERCENT = "MAX_PORTFOLIO_VALUE_PERCENT";
 	
-	public final static double MIN_PORTFOLIO_VALUE_PERCENT = 0.009;
+	private static double minPortfolioValuePercent = 0.009;
+	public final static String MIN_PORTFOLIO_VALUE_PERCENT = "MIN_PORTFOLIO_VALUE_PERCENT";
 	/*
 	 * How much the MA should decay by
 	 */
-	public final static double MA_DECAY_FACTOR = 0.05;
+	private static double maDecayFactor = 0.05;
+	public final static String MA_DECAY_FACTOR = "MA_DECAY_FACTOR";
 	
-	public final static double SPREAD_DROP_THRESHOLD = 3.0/4;
+	private static double spreadDropThreshold = 3.0/4;
+	public final static String SPREAD_DROP_THRESHOLD = "SPREAD_DROP_THRESHOLD";
 	/*
 	 * the power we raise the inverse of the best bid/ask adjustment factors by
 	 * the higher the power, the less likely our holding will deviate from ideal
 	 * value percent
 	 */
-	public final static int IDEAL_TIGHTENING_FACTOR = 9;
+	private static int idealTighteningFactor = 9;
+	public final static String IDEAL_TIGHTENING_FACTOR = "IDEAL_TIGHTENING_FACTOR";
 	
 	/*
 	 * number of cycles per day, one cycle is how long we pause for
 	 */
-	public final static long CYCLES_PER_DAY = 24*60*60*1000/PAUSE_TIME;
 	
-	public final static long BASE_VOLUME_HOLDING_MULTIPLE = 20;
+	private static long baseVolumeHoldingMutiple = 20;
+	public final static String BASE_VOLUME_HOLDING_MULTIPLE = "BASE_VOLUME_HOLDING_MULTIPLE";
 	
-	public final static long CYCLE_VOLUME_HOLDING_MULTIPLE = BASE_VOLUME_HOLDING_MULTIPLE*60*1000/PAUSE_TIME;
+	private static long cyclesPerDay = 24*60*60*1000/pauseTime;
+	private static long cycleVolumeHoldingMutiple = baseVolumeHoldingMutiple*60*1000/pauseTime;
 	
 	/*
 	 * percentage discount(for bid)/premium (for ask) for the moonshot orders
 	 * (moonshot means shoot the moon, unlikely to be filled)
 	 */
-	public final static double MOON_SHOT_ORDER_PERCENT = 0.2;
+	private static double moonShotOrderPercent = 0.2;
+	public final static String MOON_SHOT_ORDER_PERCENT = "MOON_SHOT_ORDER_PERCENT";
 	
-	public final static int MAX_ORDER_PER_PERIOD = 5;
+	private static int maxOrderPerPeriod = 5;
+	public final static String MAX_ORDER_PER_PERIOD = "MAX_ORDER_PER_PERIOD";
 	
-	public final static double PROFIT_REQ_ADJUSTMENT_NUMERATOR = 393;
+	private static double profitReqAdjustmentNumerator = 393;
+	public final static String PROFIT_REQ_ADJUSTMENT_NUMERATOR = "PROFIT_REQ_ADJUSTMENT_NUMERATOR";
 	
-	public final static double MAX_PROFIT_REQUIREMENT = 0.5;
+	private static double maxProfitRequirement = 0.5;
+	public final static String MAX_PROFIT_REQUIREMENT = "MAX_PROFIT_REQUIREMENT";
+	
+	private static String key = "";
+	public final static String API_KEY = "API_KEY";
+	
+	public final static String SYMBOLS = "SYMBOLS";
+	
+	public final static String DELIM = "DELIM";
+	
+	
 	
 	/*
 	 * Find the best eligible order we should peg to
@@ -319,7 +348,7 @@ public class MarketMaker extends Algorithm {
 			sizeAdjustmentFactor = 1 + deviation/targetNumUnits;
 		}
 		
-		return MAX_SIZE_ADJUSTMENT_FACTOR*(sizeAdjustmentFactor/2);
+		return maxSizeAdjustmentFactor*(sizeAdjustmentFactor/2);
 	}
 	
 	private static void initializeTrackingOrderArray(Order[] orders){
@@ -336,8 +365,19 @@ public class MarketMaker extends Algorithm {
 	
 	/**
 	 * @param args
+	 * @throws IOException 
+	 * @throws  
 	 */
-	public static void main(String[] args) {
+	public static void main(String[] args) throws IOException {
+		if(args.length!=1){
+			System.out.println("Need property file! Exiting!");
+			return;
+		}
+		//load properties file
+		FileInputStream configFileInputStream = new FileInputStream(args[0]);
+		AlgoConfig config = new AlgoConfig();
+		config.loadFromXML(configFileInputStream);
+		
 		int numSymbol = args.length;
 		ArrayList<String> symbols = new ArrayList<String>();
 		
@@ -351,7 +391,7 @@ public class MarketMaker extends Algorithm {
 		}
 		
 		long counter = 0;
-		Havelock hl = new Havelock();
+		Havelock hl = new Havelock(key);
 
 		double totalFees = Havelock.BUY_FEE+Havelock.SELL_FEE;
 		
@@ -402,8 +442,8 @@ public class MarketMaker extends Algorithm {
 						/* calculate the targe number of shares we want in our portfolio based on 
 						 * liquidity of the stock measured by avgVolPerCycle based on 30 Day volume
 						 */
-						double avgVolPerCycle = symbolInfo.ThirtyDayStats.vol/(30.0*CYCLES_PER_DAY);
-						long targetNumUnits = (long) Math.ceil(avgVolPerCycle*CYCLE_VOLUME_HOLDING_MULTIPLE);
+						double avgVolPerCycle = symbolInfo.ThirtyDayStats.vol/(30.0*cyclesPerDay);
+						long targetNumUnits = (long) Math.ceil(avgVolPerCycle*cycleVolumeHoldingMutiple);
 						
 						/*
 						 * risk check so that target number of units doesn't become too big part of the portfolio
@@ -412,8 +452,8 @@ public class MarketMaker extends Algorithm {
 						 */
 						double estimatedTargetValue = symbolInfo.OneDayStats.vwap*targetNumUnits;
 						double portfolioMarketValue = portfolio.getTotalPortfolioMarketValue();
-						double targetValueUpperLimit = portfolioMarketValue*MAX_PORTFOLIO_VALUE_PERCENT;
-						double targetValueLowerLimit = portfolioMarketValue*MIN_PORTFOLIO_VALUE_PERCENT;
+						double targetValueUpperLimit = portfolioMarketValue*maxPortfolioValuePercent;
+						double targetValueLowerLimit = portfolioMarketValue*minPortfolioValuePercent;
 						
 						if(estimatedTargetValue>targetValueUpperLimit){
 							long reducedTargetNumUnits = (long) Math.ceil(targetValueUpperLimit/symbolInfo.OneDayStats.vwap);
@@ -427,7 +467,7 @@ public class MarketMaker extends Algorithm {
 						
 						//we want to achieve the target units in about NUM_STEP_TO_TARGET orders
 						//minDisplaySize should be at least 1
-						long minDisplaySize = (long) Math.max(targetNumUnits/NUM_STEP_TO_TARGET,1);
+						long minDisplaySize = (long) Math.max(targetNumUnits/numStepToTarget,1);
 						long displaySizeRange = minDisplaySize/5;
 						
 						//get the current number of units we have already
@@ -454,7 +494,7 @@ public class MarketMaker extends Algorithm {
 						 */
 						//reset the size random components if we cycled enough times
 						//also reset the order counter
-						if(counter%RANDOM_RESET_IN_PAUSE_TIME_CYCLE == 0){
+						if(counter%randomResetInPauseTimeCycle == 0){
 							bidSizeRandomComponents[symIndex] = (int)(Math.random() * (displaySizeRange+1));
 							askSizeRandomComponents[symIndex] = (int)(Math.random() * (displaySizeRange+1));
 							resetCounter(newBidMktOrderCounter);
@@ -477,10 +517,10 @@ public class MarketMaker extends Algorithm {
 						 * to buy that badly so we can afford to wait
 						 */
 						double bestAskAdjustmentFactor = Math.max(askSizeAdjustmentFactor,0.01);
-						bestAskAdjustmentFactor=1/Math.pow(bestAskAdjustmentFactor,IDEAL_TIGHTENING_FACTOR);
+						bestAskAdjustmentFactor=1/Math.pow(bestAskAdjustmentFactor,idealTighteningFactor);
 						
 						double bestBidAdjustmentFactor = Math.max(bidSizeAdjustmentFactor,0.01);
-						bestBidAdjustmentFactor=1/Math.pow(bestBidAdjustmentFactor,IDEAL_TIGHTENING_FACTOR);
+						bestBidAdjustmentFactor=1/Math.pow(bestBidAdjustmentFactor,idealTighteningFactor);
 						
 						//best bid in position 0 and next best is position 1
 						Order[] bestBids = findBestEligibleOrders(sortedBids, minDisplaySize*bestBidAdjustmentFactor, mktMakingBids[symIndex]);
@@ -488,8 +528,8 @@ public class MarketMaker extends Algorithm {
 						Order[] bestAsks = findBestEligibleOrders(sortedAsks, minDisplaySize*bestAskAdjustmentFactor, mktMakingAsks[symIndex]);
 						
 						//try to get a reasonable estimate of obtainable spread
-						double spreadBidThreshold = (MAX_SIZE_ADJUSTMENT_FACTOR-bidSizeAdjustmentFactor)*minDisplaySize;
-						double spreadAskThreshold = (MAX_SIZE_ADJUSTMENT_FACTOR-askSizeAdjustmentFactor)*minDisplaySize;
+						double spreadBidThreshold = (maxSizeAdjustmentFactor-bidSizeAdjustmentFactor)*minDisplaySize;
+						double spreadAskThreshold = (maxSizeAdjustmentFactor-askSizeAdjustmentFactor)*minDisplaySize;
 						//for calculating spread only
 						Order[] spreadBids = findBestEligibleOrders(sortedBids, spreadBidThreshold, mktMakingBids[symIndex]);
 						Order[] spreadAsks = findBestEligibleOrders(sortedAsks, spreadAskThreshold, mktMakingAsks[symIndex]);
@@ -503,7 +543,7 @@ public class MarketMaker extends Algorithm {
 						if(pctSpreadMA[symIndex]==0){
 							pctSpreadMA[symIndex]=pctSpread;
 						} else {
-							pctSpreadMA[symIndex]=(1-MA_DECAY_FACTOR)*pctSpreadMA[symIndex] + MA_DECAY_FACTOR*pctSpread;
+							pctSpreadMA[symIndex]=(1-maDecayFactor)*pctSpreadMA[symIndex] + maDecayFactor*pctSpread;
 						}
 						
 						/* 
@@ -517,35 +557,35 @@ public class MarketMaker extends Algorithm {
 						
 						//calculate profit requirement
 						
-						double profitRequirement = BASE_PROFIT_TO_FEES_MULTIPLE*totalFees;
+						double profitRequirement = baseProfitToFeesMutiple*totalFees;
 						
-						profitRequirement = Math.min(profitRequirement, MAX_PROFIT_REQUIREMENT);
+						profitRequirement = Math.min(profitRequirement, maxProfitRequirement);
 						
 						//spread drop check
-						if(pctSpread>pctSpreadMA[symIndex]*SPREAD_DROP_THRESHOLD){
+						if(pctSpread>pctSpreadMA[symIndex]*spreadDropThreshold){
 							//put in passive order if profit requirement is not met
 							if(pctSpread<profitRequirement){
 								System.out.println("Putting in Passive Orders");
-								double bidPctThreshold = profitRequirement*(MAX_SIZE_ADJUSTMENT_FACTOR-bidSizeAdjustmentFactor);
+								double bidPctThreshold = profitRequirement*(maxSizeAdjustmentFactor-bidSizeAdjustmentFactor);
 								double bidPriceThreshold = midPrice*(1-bidPctThreshold);
 								
 								bestBids = findBestOrdersWithBetterPrice(sortedBids,bidPriceThreshold);
 																	
 	
-								double askPctThreshold = profitRequirement*(MAX_SIZE_ADJUSTMENT_FACTOR-askSizeAdjustmentFactor);
+								double askPctThreshold = profitRequirement*(maxSizeAdjustmentFactor-askSizeAdjustmentFactor);
 								double askPriceThreshold = midPrice*(1+askPctThreshold);
 								
 								bestAsks = findBestOrdersWithBetterPrice(sortedAsks,askPriceThreshold);
 							}
 							
 							//cool down if we have been placing too much orders
-							if(newBidMktOrderCounter[symIndex]<MAX_ORDER_PER_PERIOD && (newBid!=null)){
+							if(newBidMktOrderCounter[symIndex]<maxOrderPerPeriod && (newBid!=null)){
 								//bid side
 								newBid = sendOrder(newBid, mktMakingBids[symIndex], bestBids[0], bestBids[1], curNumUnits, portfolio.balanceAvailable,midPrice, hl);
 							}
 							
 							//cool down if we have been placing too much orders	
-							if(newAskMktOrderCounter[symIndex]<MAX_ORDER_PER_PERIOD && (newAsk!=null)){
+							if(newAskMktOrderCounter[symIndex]<maxOrderPerPeriod && (newAsk!=null)){
 								//ask side
 								newAsk = sendOrder(newAsk, mktMakingAsks[symIndex], bestAsks[0], bestAsks[1], curNumUnits, portfolio.balanceAvailable,midPrice, hl);
 							}
@@ -584,10 +624,10 @@ public class MarketMaker extends Algorithm {
 							long moonShotBidSize = targetNumUnits/2;
 							Order moonShotBid = new Order(TYPE.BID, "", "", symbol, -1, moonShotBidSize, 0);
 							//bid side
-							double moonShotBidPriceThreshold = moonShotRefPrice*(1-MOON_SHOT_ORDER_PERCENT);
+							double moonShotBidPriceThreshold = moonShotRefPrice*(1-moonShotOrderPercent);
 							//Moon Shot bid orders should only be done if the threshold is actually lower than top bid price...
 							while(moonShotBidPriceThreshold>topBidPrice){
-								moonShotBidPriceThreshold = moonShotBidPriceThreshold*(1-MOON_SHOT_ORDER_PERCENT);
+								moonShotBidPriceThreshold = moonShotBidPriceThreshold*(1-moonShotOrderPercent);
 							}
 							
 							Order[] moonShotBidRef = findBestOrdersWithBetterPrice(sortedBids,moonShotBidPriceThreshold);
@@ -608,10 +648,10 @@ public class MarketMaker extends Algorithm {
 							long moonShotAskSize = excessUnits/3;
 							Order moonShotAsk = new Order(TYPE.ASK, "", "", symbol, -1, moonShotAskSize, 0);
 							//ask side
-							double moonShotAskPriceThreshold = moonShotRefPrice*(1+MOON_SHOT_ORDER_PERCENT);
+							double moonShotAskPriceThreshold = moonShotRefPrice*(1+moonShotOrderPercent);
 							//Moon Shot ask orders should only be done if the threshold is actually higher than top ask price...
 							while(moonShotAskPriceThreshold<topAskPrice){
-								moonShotAskPriceThreshold = moonShotAskPriceThreshold*(1+MOON_SHOT_ORDER_PERCENT);
+								moonShotAskPriceThreshold = moonShotAskPriceThreshold*(1+moonShotOrderPercent);
 							}
 							
 							Order[] moonShotAskRef = findBestOrdersWithBetterPrice(sortedAsks,moonShotAskPriceThreshold);
@@ -686,7 +726,7 @@ public class MarketMaker extends Algorithm {
 			}		
 			
 			try {
-				Thread.sleep(PAUSE_TIME);
+				Thread.sleep(pauseTime);
 				counter++;
 			} catch (InterruptedException e) {
 				e.printStackTrace();
